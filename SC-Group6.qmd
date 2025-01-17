@@ -102,7 +102,7 @@ for (obj in seurat_list) {
   
   print("Seurat reconstructed.")
   
-  # Perform nMAD cutoff calculations
+  # Perform nMAD cutoff calculations --
   nfeature.upcut <- ceiling(median(obj$nFeature_RNA + 3 * median(abs(obj$nFeature_RNA - median(obj$nFeature_RNA)))))
   ncount.upcut <- ceiling(median(obj$nCount_RNA + 3 * median(abs(obj$nCount_RNA - median(obj$nCount_RNA)))))
   permt.upcut <- ceiling(median(obj$percent.mt + 3 * median(abs(obj$percent.mt - median(obj$percent.mt)))))
