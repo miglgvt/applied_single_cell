@@ -21,7 +21,7 @@ library(readxl)
 ```{r}
 # Load scRNA-seq
 getwd()
-#PT1 <- Read10X(data.dir = 'data/scRNA/PT1')
+PT1 <- Read10X(data.dir = 'data/scRNA/PT1')
 PT2 <- Read10X(data.dir = 'data/scRNA/PT2')
 RT3 <- Read10X(data.dir = 'data/scRNA/RT3')
 RT4 <- Read10X(data.dir = 'data/scRNA/RT4')
@@ -49,12 +49,46 @@ rm(NT8)
 rm(PT5)
 rm(RT6)
 
+
+```
+
+```{r}
+
+
+# Save each Seurat object as an .rds file
+saveRDS(PT1.seu, file = "PT1_seurat.rds")
+saveRDS(PT2.seu, file = "PT2_seurat.rds")
+saveRDS(PT3.seu, file = "PT3_seurat.rds")
+saveRDS(RT1.seu, file = "RT1_seurat.rds")
+saveRDS(RT2.seu, file = "RT2_seurat.rds")
+saveRDS(RT3.seu, file = "RT3_seurat.rds")
+saveRDS(NT1.seu, file = "NT1_seurat.rds")
+saveRDS(NT2.seu, file = "NT2_seurat.rds")
+
+
+
+```
+
+```{r}
+# Load Seurat objects from .rds files
+PT1.seu <- readRDS("PT1_seurat.rds")
+PT2.seu <- readRDS("PT2_seurat.rds")
+PT3.seu <- readRDS("PT3_seurat.rds")
+RT1.seu <- readRDS("RT1_seurat.rds")
+RT2.seu <- readRDS("RT2_seurat.rds")
+RT3.seu <- readRDS("RT3_seurat.rds")
+NT1.seu <- readRDS("NT1_seurat.rds")
+NT2.seu <- readRDS("NT2_seurat.rds")
+
+```
+
+```{r}
 seurat_list <- c('PT1' = PT1.seu, 'PT2' = PT2.seu, 'PT3' = PT3.seu,
                  'RT1' = RT1.seu, 'RT2' = RT2.seu, 'RT3' = RT3.seu,
                  'NT1' = NT1.seu, 'NT2' = NT2.seu)
 ```
 
-Find doublets and filter by MAD
+Start with preprocessing
 
 ```{r}
 count <- 1
@@ -71,6 +105,37 @@ for (obj in seurat_list) {
   
   # Visualize initial features
   print(VlnPlot(obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3))
+  
+  count <- 1 + count
+  
+}
+  
+
+
+```
+
+```{r}
+#Define cutoffs based on the violin plots
+cutoffs <- list(
+  "PT1" = list(nFeature_lower = 200, nFeature_upper = 2500, nCount_lower = 500, nCount_upper = 10000, percent_mt_upper = 5),
+  "PT2" = list(nFeature_lower = 300, nFeature_upper = 3000, nCount_lower = 800, nCount_upper = 12000, percent_mt_upper = 7),
+  "PT3" = list(nFeature_lower = 250, nFeature_upper = 2700, nCount_lower = 600, nCount_upper = 11000, percent_mt_upper = 6),
+  "RT1" = list(nFeature_lower = 200, nFeature_upper = 2400, nCount_lower = 500, nCount_upper = 9000, percent_mt_upper = 5),
+  "RT2" = list(nFeature_lower = 250, nFeature_upper = 2600, nCount_lower = 600, nCount_upper = 10000, percent_mt_upper = 6),
+  "RT3" = list(nFeature_lower = 200, nFeature_upper = 2300, nCount_lower = 400, nCount_upper = 8000, percent_mt_upper = 5),
+  "NT1" = list(nFeature_lower = 300, nFeature_upper = 2800, nCount_lower = 700, nCount_upper = 11000, percent_mt_upper = 7),
+  "NT2" = list(nFeature_lower = 250, nFeature_upper = 2500, nCount_lower = 600, nCount_upper = 10000, percent_mt_upper = 6)
+)  
+  
+  
+#Now, run QC
+
+for (obj in seurat_list) {
+  
+  # Add percent.mt for QC
+  obj[["percent.mt"]] <- PercentageFeatureSet(obj, pattern = "^MT-")
+  # Update the original object in the seurat_list
+  seurat_list[[count]] <- obj
   
   # Doublet detection
   print("Start doublet detection")
@@ -102,19 +167,19 @@ for (obj in seurat_list) {
   
   print("Seurat reconstructed.")
   
-  # Perform nMAD cutoff calculations
-  nfeature.upcut <- ceiling(median(obj$nFeature_RNA + 3 * median(abs(obj$nFeature_RNA - median(obj$nFeature_RNA)))))
-  ncount.upcut <- ceiling(median(obj$nCount_RNA + 3 * median(abs(obj$nCount_RNA - median(obj$nCount_RNA)))))
-  permt.upcut <- ceiling(median(obj$percent.mt + 3 * median(abs(obj$percent.mt - median(obj$percent.mt)))))
-  
-  sample.nfeature.cut <- c(sample.nfeature.cut, nfeature.upcut)
-  sample.ncount.cut <- c(sample.ncount.cut, ncount.upcut)
-  sample.mt.cut <- c(sample.mt.cut, permt.upcut)
+
   
   # Perform QC filtering
-  obj.filt <- subset(obj, subset = nFeature_RNA <= nfeature.upcut & nFeature_RNA > nfeature.upcut / 20)
-  obj.filt <- subset(obj.filt, subset = nCount_RNA <= ncount.upcut & nCount_RNA > ncount.upcut / 20)
-  obj.filt <- subset(obj.filt, subset = percent.mt <= min(permt.upcut, 25))
+  
+  obj.filt <- subset(
+    obj,
+    subset = nFeature_RNA >= cutoff$nFeature_lower & 
+             nFeature_RNA <= cutoff$nFeature_upper & 
+             nCount_RNA >= cutoff$nCount_lower & 
+             nCount_RNA <= cutoff$nCount_upper & 
+             percent.mt <= cutoff$percent_mt_upper
+  )
+ 
   obj.filt <- subset(obj.filt, subset = scDblFinder.class %in% c("singlet"))
   
   Idents(obj.filt) <- names(seurat_list)[count]
@@ -148,6 +213,7 @@ samples.nfeature.cut.summary <- data.frame(orig.ident=c(samples,samples),
 samples.mt.cut.summary <- data.frame(orig.ident=c(samples), 
                                      types=c(rep('up.cut',length(samples))),
                                      values=c(sample.mt.cut))
+
 
 # Merge all Seurat objects from the initial list
 merge.seu <- merge(x = seurat_list[[1]], 
@@ -185,31 +251,31 @@ metadata %>%
              linetype = "dashed",show.legend = F) +
   facet_wrap(~orig.ident,ncol = 4)
 
-'metadata %>% 
-  ggplot(aes(color=orig.ident, x=percent.mt, fill= orig.ident)) + 
+metadata %>%
+  ggplot(aes(color=orig.ident, x=percent.mt, fill= orig.ident)) +
   geom_density(alpha=.5) +
   scale_x_log10() +
   theme_classic() +
-  geom_vline(data = samples.mt.cut.summary, 
-             aes(xintercept = values), 
+  geom_vline(data = samples.mt.cut.summary,
+             aes(xintercept = values),
              linetype = "dashed",show.legend = F) +
-  facet_wrap(~orig.ident,ncol = 4)'
+  facet_wrap(~orig.ident,ncol = 4)
 
-'metadata %>% 
-  ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=percent.mt)) + 
-  geom_point() + 
+metadata %>%
+  ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=percent.mt)) +
+  geom_point() +
   scale_colour_gradient(low = "gray90", high = "black") +
   geom_smooth(se=TRUE,level=0.9) +
   scale_x_log10() +
   scale_y_log10() +
   theme_classic() +
-  geom_vline(data = samples.ncount.cut.summary, 
-             aes(xintercept = values), 
+  geom_vline(data = samples.ncount.cut.summary,
+             aes(xintercept = values),
              linetype = "dashed",show.legend = F)+
-  geom_hline(data = samples.nfeature.cut.summary, 
-             aes(yintercept = values), 
+  geom_hline(data = samples.nfeature.cut.summary,
+             aes(yintercept = values),
              linetype = "dashed",show.legend = F) +
-  facet_wrap(~orig.ident,ncol = 4)'
+  facet_wrap(~orig.ident,ncol = 4)
 
 merge.qc.seu <- merge(x=seurat_list_qc[[1]], y=seurat_list_qc[2:length(seurat_list_qc)])
 
