@@ -85,35 +85,37 @@ NTs.combined.seu <- FindTopFeatures(NTs.combined.seu, min.cutoff = 20)
 NTs.combined.seu <- RunSVD(NTs.combined.seu)
 NTs.combined.seu <- RunUMAP(NTs.combined.seu, dims = 1:50, reduction = 'lsi')
 
-saveRDS(NTs.combined.seu,'datamvt/scATAC/NTs.atac.rds')
+saveRDS(NTs.combined.seu,'data/scATAC/NTs.atac.rds')
+```
 
+```{r}
 TTs.combined.peaks <- find_common_peaks(
-  c('/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT1/peaks.bed',
-    '/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT2/peaks.bed',
-    '/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT5/peaks.bed',
-    '/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT3/peaks.bed',
-    '/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT4/peaks.bed',
-    '/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT6/peaks.bed')
+  c('data/scATAC/PT1/peaks.bed',
+    'data/scATAC/PT2/peaks.bed',
+    'data/scATAC/PT5/peaks.bed',
+    'data/scATAC/RT3/peaks.bed',
+    'data/scATAC/RT4/peaks.bed',
+    'data/scATAC/RT6/peaks.bed')
 )
 
-PT1.atac.seu <- create_merge_atac_seurat("/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT1/singlecell.csv",
-                                         "/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT1/fragments.tsv.gz",
+PT1.atac.seu <- create_merge_atac_seurat("data/scATAC/PT1/singlecell.csv",
+                                         "data/scATAC/PT1/fragments.tsv.gz",
                                          TTs.combined.peaks)
-PT2.atac.seu <- create_merge_atac_seurat("/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT2/singlecell.csv",
-                                         "/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT2/fragments.tsv.gz",
+PT2.atac.seu <- create_merge_atac_seurat("data/scATAC/PT2/singlecell.csv",
+                                         "data/scATAC/PT2/fragments.tsv.gz",
                                          TTs.combined.peaks)
 
-PT5.atac.seu <- create_merge_atac_seurat("/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT5/singlecell.csv",
-                                         "/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT5/fragments.tsv.gz",
+PT5.atac.seu <- create_merge_atac_seurat("data/scATAC/PT5/singlecell.csv",
+                                         "data/scATAC/PT5/fragments.tsv.gz",
                                          TTs.combined.peaks)
-RT3.atac.seu <- create_merge_atac_seurat("/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT3/singlecell.csv",
-                                         "/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT3/fragments.tsv.gz",
+RT3.atac.seu <- create_merge_atac_seurat("data/scATAC/RT3/singlecell.csv",
+                                         "data/scATAC/RT3/fragments.tsv.gz",
                                          TTs.combined.peaks)
-RT4.atac.seu <- create_merge_atac_seurat("/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT4/singlecell.csv",
-                                         "/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT4/fragments.tsv.gz",
+RT4.atac.seu <- create_merge_atac_seurat("data/scATAC/RT4/singlecell.csv",
+                                         "data/scATAC/RT4/fragments.tsv.gz",
                                          TTs.combined.peaks)
-RT6.atac.seu <- create_merge_atac_seurat("/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT6/singlecell.csv",
-                                         "/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT6/fragments.tsv.gz",
+RT6.atac.seu <- create_merge_atac_seurat("data/scATAC/RT6/singlecell.csv",
+                                         "data/scATAC/RT6/fragments.tsv.gz",
                                          TTs.combined.peaks)
 
 # add information to identify dataset of origin
@@ -124,13 +126,11 @@ RT3.atac.seu$dataset <- 'RT1'
 RT4.atac.seu$dataset <- 'RT2'
 RT6.atac.seu$dataset <- 'RT3'
 
-# regionstate bugs not accept h5seurat
-saveRDS(PT1.atac.seu,'/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT1.atac.rds')
-saveRDS(PT2.atac.seu,'/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT2.atac.rds')
-saveRDS(PT5.atac.seu,'/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT5.atac.rds')
-saveRDS(RT3.atac.seu,'/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT3.atac.rds')
-saveRDS(RT4.atac.seu,'/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT4.atac.rds')
-saveRDS(RT6.atac.seu,'/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT6.atac.rds')
 
-
+saveRDS(PT1.atac.seu,'data/scATAC/PT1.atac.rds')
+saveRDS(PT2.atac.seu,'data/scATAC/PT2.atac.rds')
+saveRDS(PT5.atac.seu,'data/scATAC/PT5.atac.rds')
+saveRDS(RT3.atac.seu,'data/scATAC/RT3.atac.rds')
+saveRDS(RT4.atac.seu,'data/scATAC/RT4.atac.rds')
+saveRDS(RT6.atac.seu,'data/scATAC/RT6.atac.rds')
 ```
