@@ -8,8 +8,10 @@ editor: visual
 library(Signac)
 library(Seurat)
 library(GenomicRanges)
+library(EnsDb.Hsapiens.v86)
 library(ggplot2)
 library(patchwork)
+library(rtracklayer)
 ```
 
 ```{r}
@@ -80,12 +82,16 @@ NTs.combined.seu <- merge(
   add.cell.ids = c("NT1","NT2")
 )
 
-NTs.combined.seu <- RunTFIDF(NTs.combined.seu)
-NTs.combined.seu <- FindTopFeatures(NTs.combined.seu, min.cutoff = 20)
-NTs.combined.seu <- RunSVD(NTs.combined.seu)
-NTs.combined.seu <- RunUMAP(NTs.combined.seu, dims = 1:50, reduction = 'lsi')
+# NTs.combined.seu <- RunTFIDF(NTs.combined.seu)
+# NTs.combined.seu <- FindTopFeatures(NTs.combined.seu, min.cutoff = 20)
+# NTs.combined.seu <- RunSVD(NTs.combined.seu)
+# NTs.combined.seu <- RunUMAP(NTs.combined.seu, dims = 1:50, reduction = 'lsi')
 
 saveRDS(NTs.combined.seu,'data/scATAC/NTs.atac.rds')
+```
+
+```{r}
+DimPlot(NTs.combined.seu, group.by = "dataset", label = TRUE)
 ```
 
 ```{r}
@@ -133,4 +139,102 @@ saveRDS(PT5.atac.seu,'data/scATAC/PT5.atac.rds')
 saveRDS(RT3.atac.seu,'data/scATAC/RT3.atac.rds')
 saveRDS(RT4.atac.seu,'data/scATAC/RT4.atac.rds')
 saveRDS(RT6.atac.seu,'data/scATAC/RT6.atac.rds')
+```
+
+# Computing QC metrics
+
+```{r}
+
+TTs.batch1.seu <- merge(
+  x = PT1.atac.seu,
+  y = list(PT2.atac.seu,RT3.atac.seu,RT4.atac.seu),
+  add.cell.ids = c("PT1","PT2","RT1","RT2")
+)
+
+TTs.batch2.seu <- merge(
+  x = PT5.atac.seu,
+  y = list(RT6.atac.seu),
+  add.cell.ids = c("PT3","RT3")
+)
+
+seurat_list <- list(
+  'NT' = NTs.combined.seu, 'Batch1' = TTs.batch1.seu, 'Batch2' = TTs.batch2.seu
+)
+```
+
+```{r}
+# extract gene annotations from EnsDb
+annotation <- GetGRangesFromEnsDb(ensdb = EnsDb.Hsapiens.v86)
+genome(annotation) <- "hg38"
+seqlevels(annotation) <- paste0('chr', seqlevels(annotation))
+
+# set the blacklist with rtracklayer
+# Path to the downloaded blacklist file
+blacklist_path <- "data/scATAC/hg38.blacklist.bed.gz"
+
+# Import the blacklist as a GRanges object
+blacklist_regions <- import(blacklist_path)
+
+```
+
+```{r}
+
+# Loop through each Seurat object in the list
+for (name in names(seurat_list)) {
+  obj <- seurat_list[[name]]  # Get the current Seurat object
+  
+  # Compute nucleosome signal score per cell
+  obj <- NucleosomeSignal(object = obj)
+  
+  # Add gene annotations to the object
+  Annotation(obj) <- annotation
+  
+  # Compute TSS enrichment score per cell
+  obj <- TSSEnrichment(object = obj)
+  
+  # Add fraction of reads in peaks
+  obj$pct_reads_in_peaks <- obj$peak_region_fragments / obj$passed_filters * 100
+  
+  # Add blacklist ratio
+  obj$blacklist_ratio <- obj$blacklist_region_fragments / obj$peak_region_fragments
+  
+  # Create density scatter plot
+  print(DensityScatter(obj, x = 'nCount_ATAC', y = 'TSS.enrichment', log_x = TRUE, quantiles = TRUE))
+  
+  # Categorize cells based on nucleosome signal
+  obj$nucleosome_group <- ifelse(obj$nucleosome_signal > 4, 'NS > 4', 'NS < 4')
+  
+  # Plot fragment histogram
+  print(FragmentHistogram(object = obj, group.by = 'nucleosome_group'))
+  
+  # Generate violin plots
+  print(VlnPlot(
+    object = obj,
+    features = c('nCount_ATAC', 'TSS.enrichment', 'blacklist_ratio', 'nucleosome_signal', 'pct_reads_in_peaks'),
+    pt.size = 0.1,
+    ncol = 5
+  ))
+  
+  # Save the modified object back to the list
+  seurat_list[[name]] <- obj
+}
+```
+
+```{r}
+# Set QC cutoffs
+
+
+```
+
+```{r}
+pbmc <- subset(
+  x = pbmc,
+  subset = nCount_peaks > 9000 &
+    nCount_peaks < 100000 &
+    pct_reads_in_peaks > 40 &
+    blacklist_ratio < 0.01 &
+    nucleosome_signal < 4 &
+    TSS.enrichment > 4
+)
+pbmc
 ```
