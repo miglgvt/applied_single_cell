@@ -21,7 +21,7 @@ library(readxl)
 ```{r}
 # Load scRNA-seq
 getwd()
-#PT1 <- Read10X(data.dir = 'data/scRNA/PT1')
+PT1 <- Read10X(data.dir = 'data/scRNA/PT1')
 PT2 <- Read10X(data.dir = 'data/scRNA/PT2')
 RT3 <- Read10X(data.dir = 'data/scRNA/RT3')
 RT4 <- Read10X(data.dir = 'data/scRNA/RT4')
@@ -92,6 +92,9 @@ for (obj in seurat_list) {
   # Create Seurat object manually
   obj <- CreateSeuratObject(counts = counts_matrix, meta.data = meta_data)
   
+  # Add percent.mt for QC
+  obj <- PercentageFeatureSet(obj, pattern = "^MT-", col.name="percent.mt")
+  
   # Normalize data (logcounts)
   if ("logcounts" %in% assayNames(sce)) {
     obj <- NormalizeData(obj, normalization.method = "LogNormalize", scale.factor = 10000)
@@ -99,6 +102,8 @@ for (obj in seurat_list) {
   
   # Scale data if needed (optional for downstream analysis)
   obj <- ScaleData(obj)
+  
+  print(head(obj@meta.data))
   
   print("Seurat reconstructed.")
   
@@ -125,6 +130,7 @@ for (obj in seurat_list) {
   seurat_list_qc <- c(seurat_list_qc, obj.filt)
   print(count)
   count <- count + 1
+  
 }
 
 # Name outputs for reference
@@ -140,6 +146,7 @@ samples.ncount.cut.summary <- data.frame(orig.ident=c(samples,samples),
                                          types=c(rep('up.cut',length(samples)),
                                                  rep('down.cut',length(samples))),
                                          values=c(sample.ncount.cut,sample.ncount.cut/20))
+
 samples.nfeature.cut.summary <- data.frame(orig.ident=c(samples,samples), 
                                            types=c(rep('up.cut',length(samples)),
                                                    rep('down.cut',length(samples))),
@@ -149,12 +156,22 @@ samples.mt.cut.summary <- data.frame(orig.ident=c(samples),
                                      types=c(rep('up.cut',length(samples))),
                                      values=c(sample.mt.cut))
 
+for (obj in seurat_list){
+  obj[["percent.mt"]] <- PercentageFeatureSet(obj, pattern = "^MT-")
+  seurat_list[[count]] <- obj
+  count <- count +1
+}
+
 # Merge all Seurat objects from the initial list
-merge.seu <- merge(x = seurat_list[[1]], 
-                   y = seurat_list[2:length(seurat_list)], 
-                   add.cell.ids = names(seurat_list), 
-                   project = "MergedSeurat")
-metadata <- merge.seu@meta.data
+# merge.seu <- merge(x = seurat_list[[1]], 
+#                    y = seurat_list[2:length(seurat_list)], 
+#                    add.cell.ids = names(seurat_list), 
+#                    project = "MergedSeurat")
+
+merge.seu.2 <- merge(x=seurat_list[[1]], y=seurat_list[2:length(seurat_list)])
+
+metadata <- merge.seu.2@meta.data
+
 
 # Visualize the number of cell counts per sample
 metadata %>% 
@@ -185,35 +202,36 @@ metadata %>%
              linetype = "dashed",show.legend = F) +
   facet_wrap(~orig.ident,ncol = 4)
 
-'metadata %>% 
-  ggplot(aes(color=orig.ident, x=percent.mt, fill= orig.ident)) + 
+metadata %>%
+  ggplot(aes(color=orig.ident, x=percent.mt, fill= orig.ident)) +
   geom_density(alpha=.5) +
   scale_x_log10() +
   theme_classic() +
-  geom_vline(data = samples.mt.cut.summary, 
-             aes(xintercept = values), 
+  geom_vline(data = samples.mt.cut.summary,
+             aes(xintercept = values),
              linetype = "dashed",show.legend = F) +
-  facet_wrap(~orig.ident,ncol = 4)'
+  facet_wrap(~orig.ident,ncol = 4)
 
-'metadata %>% 
-  ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=percent.mt)) + 
-  geom_point() + 
+metadata %>%
+  ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=percent.mt)) +
+  geom_point() +
   scale_colour_gradient(low = "gray90", high = "black") +
   geom_smooth(se=TRUE,level=0.9) +
   scale_x_log10() +
   scale_y_log10() +
   theme_classic() +
-  geom_vline(data = samples.ncount.cut.summary, 
-             aes(xintercept = values), 
+  geom_vline(data = samples.ncount.cut.summary,
+             aes(xintercept = values),
              linetype = "dashed",show.legend = F)+
-  geom_hline(data = samples.nfeature.cut.summary, 
-             aes(yintercept = values), 
+  geom_hline(data = samples.nfeature.cut.summary,
+             aes(yintercept = values),
              linetype = "dashed",show.legend = F) +
-  facet_wrap(~orig.ident,ncol = 4)'
+  facet_wrap(~orig.ident,ncol = 4)
 
 merge.qc.seu <- merge(x=seurat_list_qc[[1]], y=seurat_list_qc[2:length(seurat_list_qc)])
 
 metadata.qc <- merge.qc.seu@meta.data
+
 metadata.qc %>% 
   ggplot(aes(x=orig.ident, fill=orig.ident)) + 
   geom_bar() +

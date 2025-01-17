@@ -1,0 +1,136 @@
+---
+title: "Single-Cell ATAC"
+format: html
+editor: visual
+---
+
+```{r}
+library(Signac)
+library(Seurat)
+library(GenomicRanges)
+library(ggplot2)
+library(patchwork)
+```
+
+```{r}
+find_common_peaks <- function(peakfiles, width.upcut=10000, width.lowcut=20){
+  peaks.list <- lapply(peakfiles, FUN = function(files) {
+    read.table(files, col.names = c("chr", "start", "end"))
+  })
+  peaks.gr.list <- lapply(peaks.list, FUN = function(files) {
+    makeGRangesFromDataFrame(files)
+  })
+  myGRangesList<-GRangesList(peaks.gr.list)   
+  combined.peaks <- reduce(unlist(myGRangesList))
+  peakwidths <- width(combined.peaks)
+  combined.peaks <- combined.peaks[peakwidths  < width.upcut & peakwidths > width.lowcut]
+  return(combined.peaks)
+}
+
+create_merge_atac_seurat <- function(sc.csv, frag.tsv, combined.peaks, cells.cut=500){
+  md <- read.table(
+    file = sc.csv,
+    stringsAsFactors = FALSE,
+    sep = ",",
+    header = TRUE,
+    row.names = 1
+  )[-1, ] # remove the first row
+  
+  # perform an initial filtering of low count cells
+  md <- md[md$passed_filters > cells.cut, ]
+  
+  frags <- CreateFragmentObject(
+    path = frag.tsv,
+    cells = rownames(md)
+  )
+  
+  counts <- FeatureMatrix(
+    fragments = frags,
+    features = combined.peaks,
+    cells = rownames(md)
+  )
+  
+  sample_assay <- CreateChromatinAssay(counts, fragments = frags)
+  sample.seu <- CreateSeuratObject(sample_assay, assay = "ATAC", meta.data=md)
+  return(sample.seu)
+} 
+```
+
+```{r}
+NTs.combined.peaks <- find_common_peaks(
+  c('data/scATAC/NT7/peaks.bed',
+    'data/scATAC/NT8/peaks.bed')
+)
+
+NT7.atac.seu <- create_merge_atac_seurat("data/scATAC/NT7/singlecell.csv",
+                                         "data/scATAC/NT7/fragments.tsv.gz",
+                                         NTs.combined.peaks)
+NT8.atac.seu <- create_merge_atac_seurat("data/scATAC/NT8/singlecell.csv",
+                                         "data/scATAC/NT8/fragments.tsv.gz",
+                                         NTs.combined.peaks)
+
+# add information to identify dataset of origin
+NT7.atac.seu$dataset <- 'NT1'
+NT8.atac.seu$dataset <- 'NT2'
+
+# merge all datasets, adding a cell ID to make sure cell names are unique
+NTs.combined.seu <- merge(
+  x = NT7.atac.seu,
+  y = list(NT8.atac.seu),
+  add.cell.ids = c("NT1","NT2")
+)
+
+NTs.combined.seu <- RunTFIDF(NTs.combined.seu)
+NTs.combined.seu <- FindTopFeatures(NTs.combined.seu, min.cutoff = 20)
+NTs.combined.seu <- RunSVD(NTs.combined.seu)
+NTs.combined.seu <- RunUMAP(NTs.combined.seu, dims = 1:50, reduction = 'lsi')
+
+saveRDS(NTs.combined.seu,'datamvt/scATAC/NTs.atac.rds')
+
+TTs.combined.peaks <- find_common_peaks(
+  c('/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT1/peaks.bed',
+    '/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT2/peaks.bed',
+    '/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT5/peaks.bed',
+    '/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT3/peaks.bed',
+    '/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT4/peaks.bed',
+    '/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT6/peaks.bed')
+)
+
+PT1.atac.seu <- create_merge_atac_seurat("/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT1/singlecell.csv",
+                                         "/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT1/fragments.tsv.gz",
+                                         TTs.combined.peaks)
+PT2.atac.seu <- create_merge_atac_seurat("/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT2/singlecell.csv",
+                                         "/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT2/fragments.tsv.gz",
+                                         TTs.combined.peaks)
+
+PT5.atac.seu <- create_merge_atac_seurat("/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT5/singlecell.csv",
+                                         "/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT5/fragments.tsv.gz",
+                                         TTs.combined.peaks)
+RT3.atac.seu <- create_merge_atac_seurat("/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT3/singlecell.csv",
+                                         "/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT3/fragments.tsv.gz",
+                                         TTs.combined.peaks)
+RT4.atac.seu <- create_merge_atac_seurat("/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT4/singlecell.csv",
+                                         "/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT4/fragments.tsv.gz",
+                                         TTs.combined.peaks)
+RT6.atac.seu <- create_merge_atac_seurat("/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT6/singlecell.csv",
+                                         "/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT6/fragments.tsv.gz",
+                                         TTs.combined.peaks)
+
+# add information to identify dataset of origin
+PT1.atac.seu$dataset <- 'PT1'
+PT2.atac.seu$dataset <- 'PT2'
+PT5.atac.seu$dataset <- 'PT3'
+RT3.atac.seu$dataset <- 'RT1'
+RT4.atac.seu$dataset <- 'RT2'
+RT6.atac.seu$dataset <- 'RT3'
+
+# regionstate bugs not accept h5seurat
+saveRDS(PT1.atac.seu,'/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT1.atac.rds')
+saveRDS(PT2.atac.seu,'/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT2.atac.rds')
+saveRDS(PT5.atac.seu,'/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/PT5.atac.rds')
+saveRDS(RT3.atac.seu,'/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT3.atac.rds')
+saveRDS(RT4.atac.seu,'/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT4.atac.rds')
+saveRDS(RT6.atac.seu,'/scratch/u/kfang/scRNA_scATAC/10x_result/scATAC/RT6.atac.rds')
+
+
+```
