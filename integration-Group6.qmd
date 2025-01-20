@@ -1,0 +1,38 @@
+---
+title: "Multimodal Integration"
+format: html
+editor: visual
+---
+
+```{r}
+library(Seurat)
+library(Signac)
+library(ggplot2)
+```
+
+```{r}
+atac.integrated <- readRDS('data/scATAC/atac.integrated.rds')
+rna.integrated <- readRDS('data/scRNA/rna.integrated.rds')
+```
+
+```{r}
+rna.integrated <- NormalizeData(rna.integrated)
+rna.integrated <- FindVariableFeatures(rna.integrated)
+rna.integrated <- ScaleData(rna.integrated)
+rna.integrated <- RunPCA(rna.integrated)
+rna.integrated <- RunUMAP(rna.integrated, dims = 1:30)
+
+atac.integrated <- RunTFIDF(atac.integrated)
+atac.integrated <- FindTopFeatures(atac.integrated, min.cutoff = "q0")
+atac.integrated <- RunSVD(atac.integrated)
+atac.integrated <- RunUMAP(atac.integrated, reduction = "lsi", dims = 2:30, reduction.name = "umap.atac", reduction.key = "atacUMAP_")
+
+```
+
+## Identifying anchors between scRNA-seq and scATAC-seq datasets
+
+```{r}
+# quantify gene activity
+gene.activities <- GeneActivity(atac.integrated, features = VariableFeatures(rna.integrated))
+
+```

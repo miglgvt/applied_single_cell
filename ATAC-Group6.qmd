@@ -12,6 +12,7 @@ library(EnsDb.Hsapiens.v86)
 library(ggplot2)
 library(patchwork)
 library(rtracklayer)
+library(future)
 ```
 
 ```{r}
@@ -192,6 +193,14 @@ blacklist_regions <- import(blacklist_path)
 ```
 
 ```{r}
+seurat_list <- list(
+  "NT" = NTs.combined.seu,
+  "Batch 1" = TTs.batch1.seu,
+  "Batch 2" = TTs.batch2.seu
+)
+```
+
+```{r}
 # Loop through each Seurat object in the list
 for (name in names(seurat_list)) {
   obj <- seurat_list[[name]]  # Get the current Seurat object
@@ -207,6 +216,7 @@ for (name in names(seurat_list)) {
   
   # Add fraction of reads in peaks
   obj$pct_reads_in_peaks <- obj$peak_region_fragments / obj$passed_filters * 100
+  
   
   # Add blacklist ratio
   obj$blacklist_ratio <- obj$blacklist_region_fragments / obj$peak_region_fragments
@@ -257,21 +267,26 @@ for (name in names(seurat_list)) {
 # Set QC cutoffs
 cutoffs <- list(
   "NT" = list(peak_region_fragments_lower = 3000, peak_region_fragments_upper = 20000, 
-              pct_reads_in_peaks_lower = 20, blacklist_ratio_upper = 0.01, 
-              nucleosome_signal_upper = 4, TSS_enrichment_lower = 3),
+              pct_reads_in_peaks_lower = 40, blacklist_ratio_upper = 0.01, 
+              nucleosome_signal_upper = 2, TSS_enrichment_lower = 3),
   "Batch 1" = list(peak_region_fragments_lower = 3000, peak_region_fragments_upper = 20000, 
-              pct_reads_in_peaks_lower = 20, blacklist_ratio_upper = 0.01, 
-              nucleosome_signal_upper = 4, TSS_enrichment_lower = 2),
+              pct_reads_in_peaks_lower = 25, blacklist_ratio_upper = 0.01, 
+              nucleosome_signal_upper = 3, TSS_enrichment_lower = 2),
   "Batch 2" = list(peak_region_fragments_lower = 3000, peak_region_fragments_upper = 20000, 
-              pct_reads_in_peaks_lower = 20, blacklist_ratio_upper = 0.01, 
-              nucleosome_signal_upper = 4, TSS_enrichment_lower = 3)
+              pct_reads_in_peaks_lower = 45, blacklist_ratio_upper = 0.01, 
+              nucleosome_signal_upper = 2, TSS_enrichment_lower = 4)
 )
 
 ```
 
 ```{r}
-seurat_list_2 <- list('Batch1' = TTs.batch1.seu, 'Batch2' = TTs.batch2.seu
-)
+seurat_list_2 <- seurat_list[2:3]
+seurat_list_2
+```
+
+```{r}
+ NT.obj <- seurat_list[["NT"]]
+ View(NT.obj@meta.data)
 ```
 
 ```{r}
@@ -280,8 +295,11 @@ seurat_list_qc <- c()
 for (name in names(seurat_list)) {
   obj <- seurat_list[[name]]
   cutoff <- cutoffs[[name]]
+  # obj <- RunTFIDF(obj)
+  # obj <- FindTopFeatures(obj, min.cutoff = 10)
+  # obj <- RunSVD(obj)
   
-  obj <- subset(
+  obj.filt <- subset(
     x = obj,
     subset = 
       peak_region_fragments > cutoff$peak_region_fragments_lower & 
@@ -292,7 +310,7 @@ for (name in names(seurat_list)) {
       TSS.enrichment > cutoff$TSS_enrichment_lower
   )
   
-  seurat_list_qc[[name]] <- obj
+  seurat_list_qc[[name]] <- obj.filt
 }
 
 ```
@@ -300,32 +318,150 @@ for (name in names(seurat_list)) {
 # Preprocessing
 
 ```{r}
-NTs.combined.seu <- RunTFIDF(NTs.combined.seu)
-NTs.combined.seu <- FindTopFeatures(NTs.combined.seu, min.cutoff = 20)
-NTs.combined.seu <- RunSVD(NTs.combined.seu)
-NTs.combined.seu <- RunUMAP(NTs.combined.seu, dims = 1:50, reduction = 'lsi')
-
-TTs.batch1.seu <- RunTFIDF(TTs.batch1.seu)
-TTs.batch1.seu <- FindTopFeatures(TTs.batch1.seu, min.cutoff = 10)
-TTs.batch1.seu <- RunSVD(TTs.batch1.seu)
-NTs.combined.seu <- RunUMAP(NTs.combined.seu, dims = 1:50, reduction = 'lsi')
-
-
-TTs.batch2.seu <- RunTFIDF(TTs.batch2.seu)
-TTs.batch2.seu <- FindTopFeatures(TTs.batch2.seu, min.cutoff = 10)
-TTs.batch2.seu <- RunSVD(TTs.batch2.seu)
-TTs.batch2.seu <- RunUMAP(NTs.combined.seu, dims = 1:50, reduction = 'lsi')
-
-
+for (name in names(seurat_list_qc)) {
+  obj <- seurat_list_qc[[name]]
+  
+  obj <- RunTFIDF(obj)
+  obj <- FindTopFeatures(obj, min.cutoff = 10)
+  obj <- RunSVD(obj)
+  obj <- RunUMAP(obj, dims = 2:30, reduction = 'lsi')
+  
+  seurat_list_qc[[name]] <- obj
+}
 ```
 
 # Integration
 
 ```{r}
+NTs.combined.seu.filtered <- seurat_list_qc[["NT"]]
+TTs.batch1.seu.filtered <- seurat_list_qc[["Batch 1"]]
+TTs.batch1.seu.filtered <- seurat_list_qc[["Batch 2"]]
+```
 
+```{r}
+saveRDS(NTs.combined.seu.filtered, 'data/scATAC/NTs.atac.seu.filtered.rds')
+saveRDS(TTs.batch1.seu.filtered, 'data/scATAC/TTs.batch1.atac.seu.filtered.rds')
+saveRDS(TTs.batch2.seu.filtered, 'data/scATAC/TTs.batch2.atac.seu.filtered.rds')
+```
+
+```{r}
+NTs.combined.seu.filtered <- readRDS()
+TTs.batch1.seu.filtered <- readRDS()
+TTs.batch1.seu.filtered <- readRDS()
+```
+
+```{r}
+# simple merge
+TTs.atac.combined <- merge(TTs.batch1.seu.filtered, TTs.batch2.seu.filtered)
+
+# process the combined dataset
+TTs.atac.combined <- FindTopFeatures(TTs.atac.combined, min.cutoff = 10)
+TTs.atac.combined <- RunTFIDF(TTs.atac.combined)
+TTs.atac.combined <- RunSVD(TTs.atac.combined)
+TTs.atac.combined <- RunUMAP(TTs.atac.combined, reduction = "lsi", dims = 2:30)
+TTs.atac.combined$sample <- str_split_i(rownames(TTs.atac.combined@meta.data),"_",1)
+p1 <- DimPlot(TTs.atac.combined, group.by = "sample")
 
 ```
 
 ```{r}
+# anchor integration
+peaks.use <- Reduce(intersect, list(rownames(TTs.batch1.seu.filtered), 
+                                    rownames(TTs.batch2.seu.filtered)))
 
+```
+
+```{r}
+#To speed up the following process, we will work in parallel. Load the library "Future" and set the plan to "multisession".
+library(future)
+plan("multisession", workers = 4) # Do not change it, or it might crash.
+options(future.globals.maxSize = 8000 * 1024^2)
+
+integration.anchors <- FindIntegrationAnchors(
+  object.list = list(TTs.batch1.seu.filtered, TTs.batch2.seu.filtered),
+  anchor.features = peaks.use,
+  reduction = "rlsi",
+  dims = 2:30
+)
+
+# integrate LSI embeddings
+TTs.integrated <- IntegrateEmbeddings(
+  anchorset = integration.anchors,
+  reductions = TTs.atac.combined[["lsi"]],
+  new.reduction.name = "integrated_lsi",
+  dims.to.integrate = 1:30
+)
+```
+
+```{r}
+TTs.integrated <- RunUMAP(TTs.integrated, reduction = "integrated_lsi", dims = 2:30)
+TTs.integrated$sample <- str_split_i(rownames(TTs.integrated@meta.data),"_",1)
+TTs.integrated$dataset <- NULL
+
+p2 <- DimPlot(TTs.integrated, group.by = "sample")
+
+(p1 + ggtitle("Merged")) | (p2 + ggtitle("Integrated"))
+```
+
+## All datasets
+
+```{r}
+# simple merge
+all.atac.combined <- merge(NTs.combined.seu.filtered, TTs.integrated)
+
+# process the combined dataset
+all.atac.combined <- FindTopFeatures(all.atac.combined, min.cutoff = 10)
+all.atac.combined <- RunTFIDF(all.atac.combined)
+all.atac.combined <- RunSVD(all.atac.combined)
+all.atac.combined <- RunUMAP(all.atac.combined, reduction = "lsi", dims = 2:30)
+all.atac.combined$sample <- str_split_i(rownames(all.atac.combined@meta.data),"_",1)
+p1 <- DimPlot(all.atac.combined, group.by = "sample")
+```
+
+```{r}
+# anchor integration
+peaks.use.all <- Reduce(intersect, list(rownames(NTs.combined.seu.filtered), 
+                                    rownames(TTs.integrated)))
+```
+
+```{r}
+#To speed up the following process, we will work in parallel. Load the library "Future" and set the plan to "multisession".
+library(future)
+plan("multisession", workers = 4) # Do not change it, or it might crash.
+options(future.globals.maxSize = 8000 * 1024^2)
+
+integration.anchors.all <- FindIntegrationAnchors(
+  object.list = list(NTs.combined.seu.filtered, TTs.integrated),
+  anchor.features = peaks.use.all,
+  reduction = "rlsi",
+  dims = 2:30
+)
+
+# integrate LSI embeddings
+atac.integrated <- IntegrateEmbeddings(
+  anchorset = integration.anchors.all,
+  reductions = all.atac.combined[["lsi"]],
+  new.reduction.name = "integrated_lsi",
+  dims.to.integrate = 1:30
+)
+```
+
+```{r}
+atac.integrated <- RunUMAP(atac.integrated, reduction = "integrated_lsi", dims = 2:30)
+atac.integrated$sample <- str_split_i(rownames(atac.integrated@meta.data),"_",1)
+atac.integrated$dataset <- NULL
+
+p2 <- DimPlot(atac.integrated, group.by = "sample")
+
+(p1 + ggtitle("Merged")) | (p2 + ggtitle("Integrated"))
+```
+
+```{r}
+atac.integrated <- RunTFIDF(atac.integrated)
+atac.integrated <- FindTopFeatures(atac.integrated, min.cutoff = 'q0')
+atac.integrated <- RunSVD(atac.integrated)
+```
+
+```{r}
+saveRDS(atac.integrated, "data/scATAC/atac.integrated.rds")
 ```
