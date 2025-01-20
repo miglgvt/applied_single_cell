@@ -82,11 +82,6 @@ NTs.combined.seu <- merge(
   add.cell.ids = c("NT1","NT2")
 )
 
-# NTs.combined.seu <- RunTFIDF(NTs.combined.seu)
-# NTs.combined.seu <- FindTopFeatures(NTs.combined.seu, min.cutoff = 20)
-# NTs.combined.seu <- RunSVD(NTs.combined.seu)
-# NTs.combined.seu <- RunUMAP(NTs.combined.seu, dims = 1:50, reduction = 'lsi')
-
 saveRDS(NTs.combined.seu,'data/scATAC/NTs.atac.rds')
 ```
 
@@ -141,7 +136,17 @@ saveRDS(RT4.atac.seu,'data/scATAC/RT4.atac.rds')
 saveRDS(RT6.atac.seu,'data/scATAC/RT6.atac.rds')
 ```
 
-# Computing QC metrics
+# Computing QC metrics and Subsetting
+
+```{r}
+PT1.atac.seu <- readRDS('data/scATAC/PT1.atac.rds')
+PT2.atac.seu <- readRDS('data/scATAC/PT2.atac.rds')
+PT5.atac.seu <- readRDS('data/scATAC/PT5.atac.rds')
+RT3.atac.seu <- readRDS('data/scATAC/RT3.atac.rds')
+RT4.atac.seu <- readRDS('data/scATAC/RT4.atac.rds')
+RT6.atac.seu <- readRDS('data/scATAC/RT6.atac.rds')
+NTs.combined.seu <- readRDS('data/scATAC/NTs.atac.rds')
+```
 
 ```{r}
 
@@ -151,15 +156,25 @@ TTs.batch1.seu <- merge(
   add.cell.ids = c("PT1","PT2","RT1","RT2")
 )
 
+saveRDS(TTs.batch1.seu,'data/scATAC/TTs.batch1.atac.rds')
+
 TTs.batch2.seu <- merge(
   x = PT5.atac.seu,
   y = list(RT6.atac.seu),
   add.cell.ids = c("PT3","RT3")
 )
 
+saveRDS(TTs.batch2.seu,'data/scATAC/TTs.batch2.atac.rds')
+
 seurat_list <- list(
   'NT' = NTs.combined.seu, 'Batch1' = TTs.batch1.seu, 'Batch2' = TTs.batch2.seu
 )
+```
+
+```{r}
+TTs.batch1.seu <- readRDS('data/scATAC/TTs.batch1.atac.rds')
+TTs.batch2.seu <- readRDS('data/scATAC/TTs.batch2.atac.rds')
+NTs.combined.seu <- readRDS('data/scATAC/NTs.atac.rds')
 ```
 
 ```{r}
@@ -174,11 +189,9 @@ blacklist_path <- "data/scATAC/hg38.blacklist.bed.gz"
 
 # Import the blacklist as a GRanges object
 blacklist_regions <- import(blacklist_path)
-
 ```
 
 ```{r}
-
 # Loop through each Seurat object in the list
 for (name in names(seurat_list)) {
   obj <- seurat_list[[name]]  # Get the current Seurat object
@@ -221,20 +234,98 @@ for (name in names(seurat_list)) {
 ```
 
 ```{r}
+for (name in names(seurat_list)) {
+  obj <- seurat_list[[name]]  # Get the current Seurat object
+  
+  # Create density scatter plot
+  print(DensityScatter(obj, x = 'nCount_ATAC', y = 'TSS.enrichment', log_x = TRUE, quantiles = TRUE))
+  
+  # Plot fragment histogram
+  print(FragmentHistogram(object = obj, group.by = 'nucleosome_group'))
+  
+  # Generate violin plots
+  print(VlnPlot(
+    object = obj,
+    features = c('nCount_ATAC', 'TSS.enrichment', 'peak_region_fragments', 'nucleosome_signal', 'pct_reads_in_peaks'),
+    pt.size = 0.1,
+    ncol = 5
+  ))
+}
+```
+
+```{r}
 # Set QC cutoffs
+cutoffs <- list(
+  "NT" = list(peak_region_fragments_lower = 3000, peak_region_fragments_upper = 20000, 
+              pct_reads_in_peaks_lower = 20, blacklist_ratio_upper = 0.01, 
+              nucleosome_signal_upper = 4, TSS_enrichment_lower = 3),
+  "Batch 1" = list(peak_region_fragments_lower = 3000, peak_region_fragments_upper = 20000, 
+              pct_reads_in_peaks_lower = 20, blacklist_ratio_upper = 0.01, 
+              nucleosome_signal_upper = 4, TSS_enrichment_lower = 2),
+  "Batch 2" = list(peak_region_fragments_lower = 3000, peak_region_fragments_upper = 20000, 
+              pct_reads_in_peaks_lower = 20, blacklist_ratio_upper = 0.01, 
+              nucleosome_signal_upper = 4, TSS_enrichment_lower = 3)
+)
+
+```
+
+```{r}
+seurat_list_2 <- list('Batch1' = TTs.batch1.seu, 'Batch2' = TTs.batch2.seu
+)
+```
+
+```{r}
+seurat_list_qc <- c()
+
+for (name in names(seurat_list)) {
+  obj <- seurat_list[[name]]
+  cutoff <- cutoffs[[name]]
+  
+  obj <- subset(
+    x = obj,
+    subset = 
+      peak_region_fragments > cutoff$peak_region_fragments_lower & 
+      peak_region_fragments < cutoff$peak_region_fragments_upper &
+      pct_reads_in_peaks > cutoff$pct_reads_in_peaks_lower &
+      blacklist_ratio < cutoff$blacklist_ratio_upper &
+      nucleosome_signal < cutoff$nucleosome_signal_upper &
+      TSS.enrichment > cutoff$TSS_enrichment_lower
+  )
+  
+  seurat_list_qc[[name]] <- obj
+}
+
+```
+
+# Preprocessing
+
+```{r}
+NTs.combined.seu <- RunTFIDF(NTs.combined.seu)
+NTs.combined.seu <- FindTopFeatures(NTs.combined.seu, min.cutoff = 20)
+NTs.combined.seu <- RunSVD(NTs.combined.seu)
+NTs.combined.seu <- RunUMAP(NTs.combined.seu, dims = 1:50, reduction = 'lsi')
+
+TTs.batch1.seu <- RunTFIDF(TTs.batch1.seu)
+TTs.batch1.seu <- FindTopFeatures(TTs.batch1.seu, min.cutoff = 10)
+TTs.batch1.seu <- RunSVD(TTs.batch1.seu)
+NTs.combined.seu <- RunUMAP(NTs.combined.seu, dims = 1:50, reduction = 'lsi')
+
+
+TTs.batch2.seu <- RunTFIDF(TTs.batch2.seu)
+TTs.batch2.seu <- FindTopFeatures(TTs.batch2.seu, min.cutoff = 10)
+TTs.batch2.seu <- RunSVD(TTs.batch2.seu)
+TTs.batch2.seu <- RunUMAP(NTs.combined.seu, dims = 1:50, reduction = 'lsi')
+
+
+```
+
+# Integration
+
+```{r}
 
 
 ```
 
 ```{r}
-pbmc <- subset(
-  x = pbmc,
-  subset = nCount_peaks > 9000 &
-    nCount_peaks < 100000 &
-    pct_reads_in_peaks > 40 &
-    blacklist_ratio < 0.01 &
-    nucleosome_signal < 4 &
-    TSS.enrichment > 4
-)
-pbmc
+
 ```
