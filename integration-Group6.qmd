@@ -36,3 +36,52 @@ atac.integrated <- RunUMAP(atac.integrated, reduction = "lsi", dims = 2:30, redu
 gene.activities <- GeneActivity(atac.integrated, features = VariableFeatures(rna.integrated))
 
 ```
+
+Annotation
+
+```{r}
+#Load SingleR library
+library(SingleR)
+library(SingleCellExperiment)
+```
+
+```{r}
+# Load the dataset
+query_dataset <- readRDS("/home/projects/applied_single_cell/data/reference_dataset.rds")
+```
+
+```{r}
+# Transform the reference Seurat Object to a SCE object 
+query <- as.SingleCellExperiment(reference_dataset, assay = "RNA")
+
+```
+
+```{r}
+# Run SingleR for annotation
+annotations <- SingleR(
+  test = query,
+  ref = ref,
+  labels = ref$label.main  # Adjust to match the labels in your reference
+)
+
+# Inspect the resulting annotations
+head(annotations)
+
+```
+
+```{r}
+# Add annotations to Seurat metadata
+if (inherits(query_dataset, "Seurat")) {
+  query_dataset[["SingleR.labels"]] <- annotations$labels
+}
+```
+
+```{r}
+# Seurat DimPlot with annotations
+DimPlot(query_dataset, group.by = "SingleR.labels", label = TRUE, repel = TRUE)
+
+```
+
+```{r}
+saveRDS(query_dataset, "/path/to/annotated_query_dataset.rds")
+```
