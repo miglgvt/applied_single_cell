@@ -52,7 +52,7 @@ query_dataset <- readRDS("/home/projects/applied_single_cell/data/reference_data
 
 ```{r}
 # Transform the reference Seurat Object to a SCE object 
-query <- as.SingleCellExperiment(reference_dataset, assay = "RNA")
+query <- as.SingleCellExperiment(query_dataset, assay = "RNA")
 
 ```
 
