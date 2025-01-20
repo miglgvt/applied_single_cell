@@ -11,7 +11,7 @@ library(tidyverse)
 library(scuttle)
 library(scDblFinder)
 library(ggplot2)
-library(writexl)
+#library(writexl)
 #library(SeuratDisk)
 library(celldex)
 library(sctransform)
@@ -161,21 +161,23 @@ for (obj in seurat_list) {
   sce <- scDblFinder(sce)
   print("Doublets ok")
   
-  # Reconstruct Seurat object
-  counts_matrix <- counts(sce)  # Extract counts
-  meta_data <- as.data.frame(colData(sce))  # Extract metadata
+  obj <- as.Seurat(sce)
   
-  # Create Seurat object manually
-  obj <- CreateSeuratObject(counts = counts_matrix, meta.data = meta_data)
+  # # Reconstruct Seurat object
+  # counts_matrix <- counts(sce)  # Extract counts
+  # meta_data <- as.data.frame(colData(sce))  # Extract metadata
+  # 
+  # # Create Seurat object manually
+  # obj <- CreateSeuratObject(counts = counts_matrix, meta.data = meta_data)
   
-  # Normalize data (logcounts)
-  if ("logcounts" %in% assayNames(sce)) {
-    obj <- NormalizeData(obj, normalization.method = "LogNormalize", scale.factor = 10000)
-  }
+  # # Normalize data (logcounts)
+  # if ("logcounts" %in% assayNames(sce)) {
+  #   obj <- NormalizeData(obj, normalization.method = "LogNormalize", scale.factor = 10000)
+  # }
   
   # Scale data if needed (optional for downstream analysis)
-  obj <- ScaleData(obj)
-  
+  # obj <- ScaleData(obj)
+  # 
   print("Seurat reconstructed.")
 
   sample.nfeature.cut <- c(sample.nfeature.cut, cutoff$nFeature_upper)
@@ -352,6 +354,217 @@ metadata.qc %>%
   facet_wrap(~orig.ident,ncol=4)
 ```
 
+After the QC has been carried out, we need to integrate the scRNAseq and the scATACseq:
+
+Source of integration info: <https://hbctraining.github.io/scRNA-seq_online/lessons/06_integration.html>
+
+First, we integrate the scRNAseq:
+
+```{r}
+# seurat_list_qc$PT1 <- SCTransform(seurat_list_qc$PT1, vst.flavor = "v2", verbose = FALSE)
+# seurat_list_qc$PT2 <- SCTransform(seurat_list_qc$PT2, vst.flavor = "v2", verbose = FALSE)
+# seurat_list_qc$RT1 <- SCTransform(seurat_list_qc$RT1, vst.flavor = "v2", verbose = FALSE)
+# seurat_list_qc$RT2 <- SCTransform(seurat_list_qc$RT2, vst.flavor = "v2", verbose = FALSE)
+
+```
+
+```{r}
+seu.TTs.part1 <- merge(seurat_list_qc$PT1, y = c(seurat_list_qc$PT2, 
+                                                 seurat_list_qc$RT1,
+                                                 seurat_list_qc$RT2), 
+                       add.cell.ids = c("PT1", "PT2", "RT1", "RT2"), 
+                       project = "scRNA_09302020")
+
+seu.TTs.part2 <- merge(seurat_list_qc$PT3, y = c(seurat_list_qc$RT3), 
+                       add.cell.ids = c("PT3", "RT3"), 
+                       project = "scRNA_01112021")
+```
+
+```{r}
+seu.batchs.list <- c("seu.TTs.batch1"=seu.TTs.part1, "seu.TTs.batch2"=seu.TTs.part2) 
+seurat.qc.sct.list <- lapply(X = seu.batchs.list, FUN = function(x) {
+  x <- SCTransform(x, vst.flavor = "v2", verbose = FALSE)
+})
+
+features <- SelectIntegrationFeatures(object.list = seurat.qc.sct.list, nfeatures = 3000)
+seurat.qc.sct.list <- PrepSCTIntegration(object.list = seurat.qc.sct.list, anchor.features = features)
+```
+
+```{r}
+# seu.TTs.part1 <- NormalizeData(seu.TTs.part1)
+# seu.TTs.part1 <- FindVariableFeatures(seu.TTs.part1)
+# seu.TTs.part1 <- ScaleData(seu.TTs.part1)
+# seu.TTs.part1 <- RunPCA(seu.TTs.part1)
+
+```
+
+```{r}
+# seu.TTs.part2 <- NormalizeData(seu.TTs.part2)
+# seu.TTs.part2 <- FindVariableFeatures(seu.TTs.part2)
+# seu.TTs.part2 <- ScaleData(seu.TTs.part2)
+# seu.TTs.part2 <- RunPCA(seu.TTs.part2)
+```
+
+```{r}
+batchs.anchors <- FindIntegrationAnchors(object.list = seurat.qc.sct.list, normalization.method = "SCT",
+                                         anchor.features = features)
+
+common_genes <- Reduce(intersect, list(rownames(seu.TTs.part1),rownames(seu.TTs.part2)))
+
+TTs.combined.sct <- IntegrateData(anchorset = batchs.anchors, 
+                                  normalization.method = "SCT",
+                                  features.to.integrate = common_genes)
+
+TTs.combined.sct <- RunPCA(TTs.combined.sct, npcs = 30, verbose = FALSE)
+```
+
+Integrate data from the two batches:
+
+```{r}
+# Step 1: Backup the original data before subsetting
+seu.TTs.part1$original_RNA <- seu.TTs.part1[['RNA']]  # Backup original data
+seu.TTs.part2$original_RNA <- seu.TTs.part2[['RNA']]  # Backup original data
+
+# Step 2: Identify common genes across datasets before processing
+common_genes <- Reduce(intersect, list(rownames(seu.TTs.part1), rownames(seu.TTs.part2)))
+
+# Step 3: Subset the Seurat objects to retain only common genes before transformation
+seu.TTs.part1 <- subset(seu.TTs.part1, features = common_genes)
+seu.TTs.part2 <- subset(seu.TTs.part2, features = common_genes)
+
+# Step 4: Perform SCTransform normalization
+seu.batchs.list <- list("batch1" = seu.TTs.part1, "batch2" = seu.TTs.part2)
+
+seurat.qc.sct.list <- lapply(X = seu.batchs.list, FUN = function(x) {
+  SCTransform(x, vst.flavor = "v2", verbose = FALSE)
+})
+
+# Step 5: Select integration features based on common genes only
+features <- SelectIntegrationFeatures(object.list = seurat.qc.sct.list, nfeatures = 3000)
+
+# Ensure features align with the common gene set
+features <- intersect(features, common_genes)
+
+# Step 6: Prepare the data for SCT integration
+seurat.qc.sct.list <- PrepSCTIntegration(object.list = seurat.qc.sct.list, anchor.features = features)
+
+# Step 7: Find integration anchors
+batchs.anchors <- FindIntegrationAnchors(object.list = seurat.qc.sct.list, 
+                                         normalization.method = "SCT",
+                                         anchor.features = features)
+
+# Step 8: Integrate only the common genes
+TTs.combined.sct <- IntegrateData(anchorset = batchs.anchors, 
+                                  normalization.method = "SCT",
+                                  features.to.integrate = common_genes)
+
+# Step 9: Restore the full feature set for further analysis (optional)
+TTs.combined.sct[['RNA_full']] <- seu.TTs.part1$original_RNA  # Restoring full feature set
+DefaultAssay(TTs.combined.sct) <- "integrated"  # Use integrated assay by default
+
+# Step 10: Switch back to full gene set for DGE analysis
+#DefaultAssay(TTs.combined.sct) <- "RNA_full"
+
+
+```
+
+```{r}
+batchs.anchors <- FindIntegrationAnchors(object.list = seurat.qc.sct.list, normalization.method = "SCT",
+                                         anchor.features = features)
+
+common_genes <- Reduce(intersect, list(rownames(seu.TTs.part1),rownames(seu.TTs.part2)))
+
+TTs.combined.sct <- IntegrateData(anchorset = batchs.anchors, 
+                                  normalization.method = "SCT",
+                                  features.to.integrate = common_genes)
+
+TTs.combined.sct <- RunPCA(TTs.combined.sct, npcs = 30, verbose = FALSE)
+```
+
+```{r}
+ElbowPlot(TTs.combined.sct)
+```
+
+Trying integrating by tissue type and concatenating matrices
+
+```{r}
+# Merge all PT samples (PT1, PT2, PT3)
+seu.PT <- merge(
+  seurat_list_qc$PT1, 
+  y = list(seurat_list_qc$PT2, seurat_list_qc$PT3),
+  add.cell.ids = c("PT1", "PT2", "PT3"), 
+  project = "Primary_Tumor"
+)
+
+# Merge all RT samples (RT1, RT2, RT3)
+seu.RT <- merge(
+  seurat_list_qc$RT1, 
+  y = list(seurat_list_qc$RT2, seurat_list_qc$RT3),
+  add.cell.ids = c("RT1", "RT2", "RT3"), 
+  project = "Recurrent_Tumor"
+)
+
+# Find common features (genes) between the two merged objects
+common_genes <- intersect(rownames(seu.PT), rownames(seu.RT))
+
+# Subset the Seurat objects to retain only common genes
+seu.PT <- subset(seu.PT, features = common_genes)
+seu.RT <- subset(seu.RT, features = common_genes)
+
+# Concatenate count matrices for PT samples
+seu.PT[['RNA']]@counts <- do.call(cbind, 
+  seu.PT[['RNA']]@layers[c('counts.1', 'counts.2', 'counts.3')]
+)
+
+# Concatenate count matrices for RT samples
+seu.RT[['RNA']]@counts <- do.call(cbind, 
+  seu.RT[['RNA']]@layers[c('counts.1', 'counts.2', 'counts.3')]
+)
+
+# Remove unnecessary layers to save memory
+seu.PT[['RNA']]@layers <- list()
+seu.RT[['RNA']]@layers <- list()
+
+# Ensure the correct default assay is set
+DefaultAssay(seu.PT) <- "RNA"
+DefaultAssay(seu.RT) <- "RNA"
+# Create a list with PT and RT objects
+seu.batchs.list <- list("PT" = seu.PT, "RT" = seu.RT)
+
+# Perform SCTransform normalization on each dataset
+seurat.qc.sct.list <- lapply(seu.batchs.list, function(x) {
+  SCTransform(x, vst.flavor = "v2", verbose = FALSE)
+})
+
+# Select features for integration
+features <- SelectIntegrationFeatures(object.list = seurat.qc.sct.list, nfeatures = 3000)
+
+# Prepare the data for SCT integration
+seurat.qc.sct.list <- PrepSCTIntegration(object.list = seurat.qc.sct.list, anchor.features = features, verbose = TRUE)
+# Find integration anchors between PT and RT
+batchs.anchors <- FindIntegrationAnchors(object.list = seurat.qc.sct.list, 
+                                         normalization.method = "SCT",
+                                         anchor.features = features)
+
+# Integrate the data using shared features
+common_genes <- Reduce(intersect, list(rownames(seu.PT), rownames(seu.RT)))
+
+TTs.combined.sct <- IntegrateData(anchorset = batchs.anchors, 
+                                  normalization.method = "SCT",
+                                  features.to.integrate = common_genes)
+
+# # Run dimensionality reduction and clustering
+# TTs.combined.sct <- RunPCA(TTs.combined.sct, npcs = 30, verbose = FALSE)
+# TTs.combined.sct <- RunUMAP(TTs.combined.sct, reduction = "pca", dims = 1:30)
+# TTs.combined.sct <- FindNeighbors(TTs.combined.sct, reduction = "pca", dims = 1:30)
+# TTs.combined.sct <- FindClusters(TTs.combined.sct, resolution = 0.9)
+
+
+
+```
+
+Now, integrate this object (primary + recurrent tumor samples) with the normal samples
+
 ```{r}
 NTs.seu <- merge(seurat_list_qc$NT1, y = c(seurat_list_qc$NT2), 
                  add.cell.ids = c("NT1", "NT2"), 
@@ -377,6 +590,30 @@ NTs.seu <- RunPCA(NTs.seu,
 
 ElbowPlot(NTs.seu, ndims = 30)
 ```
+
+Integrate:
+
+```{r}
+objects.list <- c("seu.TTs"=TTs.combined.sct, "seu.NTs"=NTs.seu) 
+seurat.qc.list <- lapply(X = objects.list, FUN = function(x) {
+  x <- SCTransform(x, vst.flavor = "v2", verbose = FALSE)
+})
+
+features <- SelectIntegrationFeatures(object.list = seurat.qc.list, nfeatures = 3000)
+
+seurat.qc.list <- PrepSCTIntegration(object.list = seurat.qc.list, anchor.features = features, verbose = TRUE)
+
+batchs.anchors <- FindIntegrationAnchors(object.list = seurat.qc.list, normalization.method = "SCT",
+                                         anchor.features = features)
+
+common_genes <- Reduce(intersect, list(rownames(TTs.combined.sct),rownames(NTs.seu)))
+
+scrna.combined.sct <- IntegrateData(anchorset = batchs.anchors, 
+                                  normalization.method = "SCT",
+                                  features.to.integrate = common_genes)
+```
+
+<https://hbctraining.github.io/scRNA-seq_online/lessons/06_integration.html>
 
 ```{r}
 NTs.seu <- RunUMAP(NTs.seu, reduction = "pca", dims = 1:30)
@@ -445,6 +682,10 @@ VlnPlot(NTs.seu, features = NTs.marker,
         axis.text.x = element_text(colour = 'black',size = 14),
         legend.position = 'none')
 
+
+```
+
+```{r}
 # add cell type annotation
 NTs.seu <- RenameIdents(object = NTs.seu,
                         "0" = "Luminal cells", 
@@ -467,3 +708,5 @@ NTs_top <- NTs_markers %>%
 
 DoHeatmap(NTs.seu, features = NTs_top$gene,label=FALSE) + theme(text = element_text(face="bold",size=8))
 ```
+
+<https://hbctraining.github.io/scRNA-seq_online/lessons/06_integration.html>
