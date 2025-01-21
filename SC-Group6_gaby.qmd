@@ -70,15 +70,15 @@ saveRDS(NT2.seu, file = "data/scRNA/NT2_seurat.rds")
 ```
 
 ```{r}
-# Load Seurat objects from .rds files
-PT1.seu <- readRDS("~/data/scRNA/PT1_seurat.rds")
-PT2.seu <- readRDS("~/data/scRNA/PT2_seurat.rds")
-PT3.seu <- readRDS("~/data/scRNA/PT3_seurat.rds")
-RT1.seu <- readRDS("~/data/scRNA/RT1_seurat.rds")
-RT2.seu <- readRDS("~/data/scRNA/RT2_seurat.rds")
-RT3.seu <- readRDS("~/data/scRNA/RT3_seurat.rds")
-NT1.seu <- readRDS("~/data/scRNA/NT1_seurat.rds")
-NT2.seu <- readRDS("~/data/scRNA/NT2_seurat.rds")
+# # Load Seurat objects from .rds files
+# PT1.seu <- readRDS("data/scRNA/PT1_seurat.rds")
+# PT2.seu <- readRDS("data/scRNA/PT2_seurat.rds")
+# PT3.seu <- readRDS("data/scRNA/PT3_seurat.rds")
+# RT1.seu <- readRDS("data/scRNA/RT1_seurat.rds")
+# RT2.seu <- readRDS("data/scRNA/RT2_seurat.rds")
+# RT3.seu <- readRDS("data/scRNA/RT3_seurat.rds")
+# NT1.seu <- readRDS("data/scRNA/NT1_seurat.rds")
+# NT2.seu <- readRDS("data/scRNA/NT2_seurat.rds")
 
 ```
 
@@ -383,30 +383,37 @@ saveRDS(seu.TTs.part2, file = "data/scRNA/TTs.part2.rds")
 
 ```
 
+If you have the objects, you can load them from here:
+
 ```{r}
-TTs.unintegrated <- merge(seurat_list_qc$PT1, y = c(seurat_list_qc$PT2,                          seurat_list_qc$RT1,                                   seurat_list_qc$RT2,
-seurat_list_qc$PT3,
-seurat_list_qc$RT3), add.cell.ids = c("PT1", "PT2", "RT1", "RT2", "RT3", "PT3"),                       project = "scRNA_TTs_unintegrated")
+# seu.TTs.part1 <- readRDS("data/scRNA/TTs.part1.rds")
+# seu.TTs.part2 <- readRDS("data/scRNA/TTs.part2.rds")
+```
+
+```{r}
+# TTs.unintegrated <- merge(seurat_list_qc$PT1, y = c(seurat_list_qc$PT2,                          seurat_list_qc$RT1,                                   seurat_list_qc$RT2,
+# seurat_list_qc$PT3,
+# seurat_list_qc$RT3), add.cell.ids = c("PT1", "PT2", "RT1", "RT2", "RT3", "PT3"),                       project = "scRNA_TTs_unintegrated")
 
 ```
 
 ```{r}
-TTs.unintegrated <- NormalizeData(TTs.unintegrated)
-TTs.unintegrated <- FindVariableFeatures(TTs.unintegrated)
-TTs.unintegrated <- ScaleData(TTs.unintegrated)
-TTs.unintegrated  <- RunPCA(TTs.unintegrated, npcs = 30, verbose = FALSE)
-TTs.unintegrated <- RunUMAP(TTs.unintegrated, reduction = "pca", dims = 1:30)
-TTs.unintegrated <- FindNeighbors(TTs.unintegrated, reduction = "pca", dims = 1:30)
-TTs.unintegrated <- FindClusters(TTs.unintegrated, resolution = 0.9, algorithm = 2)
+# TTs.unintegrated <- NormalizeData(TTs.unintegrated)
+# TTs.unintegrated <- FindVariableFeatures(TTs.unintegrated)
+# TTs.unintegrated <- ScaleData(TTs.unintegrated)
+# TTs.unintegrated  <- RunPCA(TTs.unintegrated, npcs = 30, verbose = FALSE)
+# TTs.unintegrated <- RunUMAP(TTs.unintegrated, reduction = "pca", dims = 1:30)
+# TTs.unintegrated <- FindNeighbors(TTs.unintegrated, reduction = "pca", dims = 1:30)
+# TTs.unintegrated <- FindClusters(TTs.unintegrated, resolution = 0.9, algorithm = 2)
 
 ```
 
 ```{r}
-DimPlot(TTs.unintegrated, reduction="umap")
+# DimPlot(TTs.unintegrated, reduction="umap")
 ```
 
 ```{r}
-saveRDS(TTs.unintegrated, file = "data/scRNA/TTs.unintegrated.rds")
+# saveRDS(TTs.unintegrated, file = "data/scRNA/TTs.unintegrated.rds")
 
 ```
 
@@ -426,6 +433,21 @@ batchs.anchors <- FindIntegrationAnchors(object.list = seurat.qc.sct.list, norma
 
 common_genes <- Reduce(intersect, list(rownames(seu.TTs.part1),rownames(seu.TTs.part2)))
 
+
+```
+
+FOR THE NEXT STEP, only retain the batchs.anchors object, and the common_genes objects. DELETE the rest of the objects in your workspace
+
+```{r}
+rm(seurat.qc.sct.list)
+rm(seu.TTs.part1)
+rm(seu.TTs.part2)
+rm(seu.batchs.list)
+```
+
+If it doesnt crash in integrate data amazing
+
+```{r}
 TTs.combined.sct <- IntegrateData(anchorset = batchs.anchors, 
                                   normalization.method = "SCT",
                                   features.to.integrate = common_genes)
@@ -453,39 +475,43 @@ saveRDS(TTs.combined.sct, file = "data/scRNA/TTs.combined.sct")
 Integrate normal tissue samples:
 
 ```{r}
-NTs.seu <- merge(seurat_list_qc$NT1, y = c(seurat_list_qc$NT2), 
-                 add.cell.ids = c("NT1", "NT2"), 
-                 project = "scRNA_NTs")
-
-# Run the standard workflow for visualization and clustering
-NTs.seu.sct <- SCTransform(NTs.seu, method = "glmGamPoi", vars.to.regress = "percent.mt",
-                           verbose = FALSE)
-NTs.seu <- RunPCA(NTs.seu, npcs = 30, verbose = FALSE)
-NTs.seu <- RunUMAP(NTs.seu, reduction = "pca", dims = 1:30)
-NTs.seu <- FindNeighbors(NTs.seu, reduction = "pca", dims = 1:30)
-NTs.seu <- FindClusters(NTs.seu, resolution = 0.9, algorithm = 2)
-
-# check the cluster location
-DimPlot(NTs.seu, label=TRUE, repel = T, reduction = "umap")
+# NTs.seu <- merge(seurat_list_qc$NT1, y = c(seurat_list_qc$NT2), 
+#                  add.cell.ids = c("NT1", "NT2"), 
+#                  project = "scRNA_NTs")
+# 
+# # Run the standard workflow for visualization and clustering
+# NTs.seu.sct <- SCTransform(NTs.seu, method = "glmGamPoi", vars.to.regress = "percent.mt",
+#                            verbose = FALSE)
+# NTs.seu <- RunPCA(NTs.seu, npcs = 30, verbose = FALSE)
+# NTs.seu <- RunUMAP(NTs.seu, reduction = "pca", dims = 1:30)
+# NTs.seu <- FindNeighbors(NTs.seu, reduction = "pca", dims = 1:30)
+# NTs.seu <- FindClusters(NTs.seu, resolution = 0.9, algorithm = 2)
+# 
+# # check the cluster location
+# DimPlot(NTs.seu, label=TRUE, repel = T, reduction="umap")
 ```
 
 ```{r}
-NTs.unintegrated <- merge(seurat_list_qc$NT1, y = c(seurat_list_qc$NT2), 
-                 add.cell.ids = c("NT1", "NT2"), 
-                 project = "scRNA_NTs_unintegrated")
-
-NTs.unintegrated <- NormalizeData(NTs.unintegrated)
-NTs.unintegrated <- FindVariableFeatures(NTs.unintegrated)
-NTs.unintegrated <- ScaleData(NTs.unintegrated)
-NTs.unintegrated  <- RunPCA(NTs.unintegrated, npcs = 30, verbose = FALSE)
-NTs.unintegrated <- RunUMAP(NTs.unintegrated, reduction = "pca", dims = 1:30)
-NTs.unintegrated <- FindNeighbors(NTs.unintegrated, reduction = "pca", dims = 1:30)
-NTs.unintegrated <- FindClusters(NTs.unintegrated, resolution = 0.9, algorithm = 2)
-DimPlot(NTs.unintegrated, reduction="umap")
+# NTs.unintegrated <- merge(seurat_list_qc$NT1, y = c(seurat_list_qc$NT2), 
+#                  add.cell.ids = c("NT1", "NT2"), 
+#                  project = "scRNA_NTs_unintegrated")
+# 
+# NTs.unintegrated <- NormalizeData(NTs.unintegrated)
+# NTs.unintegrated <- FindVariableFeatures(NTs.unintegrated)
+# NTs.unintegrated <- ScaleData(NTs.unintegrated)
+# NTs.unintegrated  <- RunPCA(NTs.unintegrated, npcs = 30, verbose = FALSE)
+# NTs.unintegrated <- RunUMAP(NTs.unintegrated, reduction = "pca", dims = 1:30)
+# NTs.unintegrated <- FindNeighbors(NTs.unintegrated, reduction = "pca", dims = 1:30)
+# NTs.unintegrated <- FindClusters(NTs.unintegrated, resolution = 0.9, algorithm = 2)
+# DimPlot(NTs.unintegrated, reduction="umap")
 ```
 
 Save objects:
 
 ```{r}
-saveRDS(TTs.unintegrated, file = "data/scRNA/TTs_unintegrated.rds")
+# saveRDS(NTs.unintegrated, file = "data/scRNA/NTs.unintegrated.rds")
+```
+
+```{r}
+# saveRDS(TTs.unintegrated, file = "data/scRNA/TTs_unintegrated.rds")
 ```
