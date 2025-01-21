@@ -542,9 +542,9 @@ peaks.use.reduced <- Reduce(intersect, list(rownames(NTs.combined.seu.filtered),
 
 ```{r}
 #To speed up the following process, we will work in parallel. Load the library "Future" and set the plan to "multisession".
-# library(future)
-# plan("multisession", workers = 4) # Do not change it, or it might crash.
-# options(future.globals.maxSize = 20000 * 1024^2)
+library(future)
+plan("multisession", workers = 4) # Do not change it, or it might crash.
+options(future.globals.maxSize = 15000 * 1024^2)
 
 integration.anchors.reduced <- FindIntegrationAnchors(
   object.list = list(NTs.combined.seu.filtered, TTs.batch1.seu.filtered),
@@ -558,7 +558,8 @@ reduced.atac.integrated <- IntegrateEmbeddings(
   anchorset = integration.anchors.reduced,
   reductions = reduced.atac.combined[["lsi"]],
   new.reduction.name = "integrated_lsi",
-  dims.to.integrate = 1:30
+  dims.to.integrate = 1:30,
+  k.weight = 10
 )
 ```
 
@@ -579,4 +580,18 @@ reduced.atac.integrated <- RunSVD(reduced.atac.integrated)
 
 ```{r}
 saveRDS(reduced.atac.integrated, "data/scATAC/reduced.atac.integrated.rds")
+```
+
+```{r}
+# Assuming p1 and p2 are ggplot objects
+combined_plot <- (p1 + ggtitle("Merged")) | (p2 + ggtitle("Integrated"))
+
+# Save the combined plot
+ggsave(
+  filename = "results/atac_integration6_plot_2.png", # File name
+  plot = combined_plot,          # The plot object to save
+  width = 10,                    # Width of the image in inches
+  height = 5,                    # Height of the image in inches
+  dpi = 300                      # Resolution in dots per inch
+)
 ```
