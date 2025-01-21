@@ -393,7 +393,7 @@ If you have the objects, you can load them from here:
 ```{r}
 # TTs.unintegrated <- merge(seurat_list_qc$PT1, y = c(seurat_list_qc$PT2,                          seurat_list_qc$RT1,                                   seurat_list_qc$RT2,
 # seurat_list_qc$PT3,
-# seurat_list_qc$RT3), add.cell.ids = c("PT1", "PT2", "RT1", "RT2", "RT3", "PT3"),                       project = "scRNA_TTs_unintegrated")
+# seurat_list_qc$RT3), add.cell.ids = c("PT1", "PT2", "RT1", "RT2", "PT3", "RT3"),                       project = "scRNA_TTs_unintegrated")
 
 ```
 
