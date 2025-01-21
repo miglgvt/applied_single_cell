@@ -1,5 +1,5 @@
 ---
-title: "Multimodal Integration"
+title: "Annotation"
 format: html
 editor: visual
 ---
@@ -8,70 +8,36 @@ editor: visual
 
 ```{r}
 
-NTs.seu <- RunUMAP(NTs.seu, reduction = "pca", dims = 1:30)
-NTs.seu <- FindNeighbors(NTs.seu, reduction = "pca", dims = 1:30)
+TTs.combined.sct <- RunUMAP(TTs.combined.sct, reduction = "pca", dims = 1:30)
+TTs.combined.sct <- FindNeighbors(TTs.combined.sct, reduction = "pca", dims = 1:30)
 
 # Run FindClusters using three different resolutions
-NTs.seu <- FindClusters(NTs.seu, resolution = 0.3, algorithm = 2)
-NTs.seu <- FindClusters(NTs.seu, resolution = 0.9, algorithm = 2)
-NTs.seu <- FindClusters(NTs.seu, resolution = 0.5, algorithm = 2)
+TTs.combined.sct <- FindClusters(TTs.combined.sct, resolution = 0.3, algorithm = 2)
+TTs.combined.sct <- FindClusters(TTs.combined.sct, resolution = 0.9, algorithm = 2)
+TTs.combined.sct <- FindClusters(TTs.combined.sct, resolution = 0.5, algorithm = 2)
 
 # check the cluster location
-DimPlot(NTs.seu, label=TRUE, group.by = "RNA_snn_res.0.9")
+DimPlot(TTs.combined.sct, label=TRUE, group.by = "integrated_snn_res.0.9")
 
 # check the cluster location
-DimPlot(NTs.seu, label=TRUE,  group.by = "RNA_snn_res.0.3")
+DimPlot(TTs.combined.sct, label=TRUE,  group.by = "integrated_snn_res.0.3")
 
 # check the cluster location
-DimPlot(NTs.seu, label=TRUE,  group.by = "RNA_snn_res.0.5")
+DimPlot(TTs.combined.sct, label=TRUE,  group.by = "integrated_snn_res.0.5")
 ```
 
 Run clustree
 
 ```{r}
 library(clustree)
-clustree(NTs.seu, prefix = "RNA_snn_res.")
+clustree(TTs.combined.sct, prefix = "integrated_snn_res.")
 
-Idents(NTs.seu) <- "RNA_snn_res.0.9"
+Idents(TTs.combined.sct) <- "integrated_snn_res.0.5"
 ```
 
 ```{r}
-# Find markers
-NTs.seu <- SCTransform(NTs.seu, method = "glmGamPoi", vars.to.regress = "percent.mt")
-NTs.seu <- PrepSCTFindMarkers(NTs.seu)
-# Find markers for every cluster compared to all remaining cells, report only the positive ones
-NTs_markers <- FindAllMarkers(object = NTs.seu, 
-                              assay='SCT',
-                              only.pos = TRUE,
-                              logfc.threshold = 0.25)
-
-NTs_top <- NTs_markers %>%
-  group_by(cluster) %>%
-  top_n(n = 20,
-        wt = avg_log2FC)
-
-sheetlist <- list("allPosMarkers"=NTs_markers,"Top20Markers"=NTs_top)
-write_xlsx(sheetlist, '/scratch/u/kfang/scRNA_scATAC/10x_result/scRNA/NTs_markers.xlsx')
-
-# plot stackviolin plot
-NTs.marker <- c("KRT15","KRT16","KRT17", # Basal
-                "ESRP1","ELF3","RARRES1",       # Luminal
-                "TOP2A", "CDK1","MKI67","CENPF", #Luminal Progenitor
-                "COL4A6","COL4A5",
-                "S100A10", "ID1",
-                "CXCL1", "CXCL8", 
-                "CD24")
-
-VlnPlot(NTs.seu, features = NTs.marker,
-        stack=T,pt.size=0,
-        flip = T,
-        add.noise = T) +
-  theme(axis.text.y = element_blank(), 
-        axis.ticks.y = element_blank(),
-        axis.title = element_blank(),
-        axis.text.x = element_text(colour = 'black',size = 14),
-        legend.position = 'none')
-
+library(SingleR)
+library(SingleCellExperiment)
 ```
 
 1.  Load reference dataset
@@ -95,6 +61,10 @@ Subsetting by breast tissue
 ref_dataset_breast <- subset(ref_dataset, subset = tissue == "breast")
 ```
 
+```{r}
+dim(ref_dataset_breast)
+```
+
 Tranform reference dataset into singlecellexperiment object
 
 ```{r}
@@ -104,9 +74,13 @@ sce <- as.SingleCellExperiment(ref_dataset)
 2.  Run SingleR
 
 ```{r}
+integrated.seu <- readRDS("data/scRNA/TTs.combined.sct")
+```
+
+```{r}
 # Run SingleR for annotation
 annotations <- SingleR(
-  test = query,
+  test = integrated.seu,
   ref = sce,
   labels = ref_dataset$cell_type,
   de.method = 'wilcox' 
