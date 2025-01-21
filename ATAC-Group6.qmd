@@ -13,6 +13,7 @@ library(ggplot2)
 library(patchwork)
 library(rtracklayer)
 library(future)
+library(stringr)
 ```
 
 ```{r}
@@ -335,19 +336,19 @@ for (name in names(seurat_list_qc)) {
 ```{r}
 NTs.combined.seu.filtered <- seurat_list_qc[["NT"]]
 TTs.batch1.seu.filtered <- seurat_list_qc[["Batch 1"]]
-TTs.batch1.seu.filtered <- seurat_list_qc[["Batch 2"]]
+TTs.batch2.seu.filtered <- seurat_list_qc[["Batch 2"]]
 ```
 
 ```{r}
-saveRDS(NTs.combined.seu.filtered, 'data/scATAC/NTs.atac.seu.filtered.rds')
-saveRDS(TTs.batch1.seu.filtered, 'data/scATAC/TTs.batch1.atac.seu.filtered.rds')
-saveRDS(TTs.batch2.seu.filtered, 'data/scATAC/TTs.batch2.atac.seu.filtered.rds')
+saveRDS(NTs.combined.seu.filtered, 'data/scATAC/filtered/NTs.atac.seu.filtered.rds')
+saveRDS(TTs.batch1.seu.filtered, 'data/scATAC/filtered/TTs.batch1.atac.seu.filtered.rds')
+saveRDS(TTs.batch2.seu.filtered, 'data/scATAC/filtered/TTs.batch2.atac.seu.filtered.rds')
 ```
 
 ```{r}
-NTs.combined.seu.filtered <- readRDS()
-TTs.batch1.seu.filtered <- readRDS()
-TTs.batch1.seu.filtered <- readRDS()
+NTs.combined.seu.filtered <- readRDS('data/scATAC/filtered/NTs.atac.seu.filtered.rds')
+TTs.batch1.seu.filtered <- readRDS('data/scATAC/filtered/TTs.batch1.atac.seu.filtered.rds')
+TTs.batch2.seu.filtered <- readRDS('data/scATAC/filtered/TTs.batch2.atac.seu.filtered.rds')
 ```
 
 ```{r}
@@ -375,7 +376,7 @@ peaks.use <- Reduce(intersect, list(rownames(TTs.batch1.seu.filtered),
 #To speed up the following process, we will work in parallel. Load the library "Future" and set the plan to "multisession".
 library(future)
 plan("multisession", workers = 4) # Do not change it, or it might crash.
-options(future.globals.maxSize = 8000 * 1024^2)
+options(future.globals.maxSize = 12000 * 1024^2)
 
 integration.anchors <- FindIntegrationAnchors(
   object.list = list(TTs.batch1.seu.filtered, TTs.batch2.seu.filtered),
@@ -396,26 +397,64 @@ TTs.integrated <- IntegrateEmbeddings(
 ```{r}
 TTs.integrated <- RunUMAP(TTs.integrated, reduction = "integrated_lsi", dims = 2:30)
 TTs.integrated$sample <- str_split_i(rownames(TTs.integrated@meta.data),"_",1)
-TTs.integrated$dataset <- NULL
 
 p2 <- DimPlot(TTs.integrated, group.by = "sample")
 
 (p1 + ggtitle("Merged")) | (p2 + ggtitle("Integrated"))
 ```
 
+```{r}
+saveRDS(TTs.atac.combined, 'data/scATAC/integration/TTs.atac.combined.rds' )
+saveRDS(TTs.integrated, 'data/scATAC/integration/TTs.atac.integrated.rds' )
+```
+
 ## All datasets
+
+```{r}
+
+```
+
+```{r}
+TTs.atac.combined <- readRDS('data/scATAC/integration/TTs.atac.combined.rds')
+TTs.integrated <- readRDS('data/scATAC/integration/TTs.atac.integrated.rds')
+```
+
+```{r}
+NTs.combined.seu.filtered <- FindTopFeatures(NTs.combined.seu.filtered, min.cutoff = 10)
+NTs.combined.seu.filtered <- RunTFIDF(NTs.combined.seu.filtered)
+NTs.combined.seu.filtered <- RunSVD(NTs.combined.seu.filtered)
+NTs.combined.seu.filtered <- RunUMAP(NTs.combined.seu.filtered, dims = 2:30, reduction = "lsi")
+
+TTs.integrated <- FindTopFeatures(TTs.integrated, min.cutoff = 10)
+TTs.integrated <- RunTFIDF(TTs.integrated)
+TTs.integrated <- RunSVD(TTs.integrated)
+TTs.integrated <- RunUMAP(TTs.integrated, dims = 2:30, reduction = "lsi")
+```
 
 ```{r}
 # simple merge
 all.atac.combined <- merge(NTs.combined.seu.filtered, TTs.integrated)
+```
 
+```{r}
 # process the combined dataset
 all.atac.combined <- FindTopFeatures(all.atac.combined, min.cutoff = 10)
 all.atac.combined <- RunTFIDF(all.atac.combined)
 all.atac.combined <- RunSVD(all.atac.combined)
-all.atac.combined <- RunUMAP(all.atac.combined, reduction = "lsi", dims = 2:30)
+all.atac.combined <- RunUMAP(all.atac.combined, dims = 2:30, reduction = "lsi")
 all.atac.combined$sample <- str_split_i(rownames(all.atac.combined@meta.data),"_",1)
+```
+
+```{r}
 p1 <- DimPlot(all.atac.combined, group.by = "sample")
+```
+
+```{r}
+saveRDS(all.atac.combined, 'data/scATAC/integration/all.atac.combined.rds')
+```
+
+```{r}
+all.atac.combined <- readRDS('data/scATAC/integration/all.atac.combined.rds')
 ```
 
 ```{r}
@@ -426,9 +465,9 @@ peaks.use.all <- Reduce(intersect, list(rownames(NTs.combined.seu.filtered),
 
 ```{r}
 #To speed up the following process, we will work in parallel. Load the library "Future" and set the plan to "multisession".
-library(future)
-plan("multisession", workers = 4) # Do not change it, or it might crash.
-options(future.globals.maxSize = 8000 * 1024^2)
+# library(future)
+# plan("multisession", workers = 4) # Do not change it, or it might crash.
+# options(future.globals.maxSize = 20000 * 1024^2)
 
 integration.anchors.all <- FindIntegrationAnchors(
   object.list = list(NTs.combined.seu.filtered, TTs.integrated),

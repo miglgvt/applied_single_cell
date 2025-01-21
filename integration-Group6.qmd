@@ -37,7 +37,7 @@ gene.activities <- GeneActivity(atac.integrated, features = VariableFeatures(rna
 
 ```
 
-Annotation
+## Cell Type Annotation
 
 ```{r}
 #Load SingleR library
@@ -45,9 +45,30 @@ library(SingleR)
 library(SingleCellExperiment)
 ```
 
+Load reference dataset
+
 ```{r}
 # Load the dataset
-query_dataset <- readRDS("/home/projects/applied_single_cell/data/reference_dataset.rds")
+ref_dataset <- readRDS("/home/people/s233658/projects/applied_single_cell/data/9dff3651-e629-4519-aaab-dbd21b6b02b1.rds")
+```
+
+```{r}
+cell_type <- ref_dataset@meta.data$cell_type
+```
+
+```{r}
+tissue_type <- ref_dataset@meta.data$tissue
+```
+
+Subsetting by tissue
+
+```{r}
+
+# Subset rows where tissue is "breast"
+ref_dataset_breast <- subset(ref_dataset, subset = tissue == "breast")
+```
+
+```{}
 ```
 
 ```{r}

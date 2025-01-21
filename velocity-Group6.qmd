@@ -1,0 +1,87 @@
+---
+title: "Velocity analysis"
+format: html
+editor: visual
+---
+
+```{r}
+library(Seurat)
+library(SeuratObject)
+library(SingleCellExperiment)
+library(velociraptor)
+library(scran)
+library(loomR)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r}
+# Load Seurat object
+seurat_obj <- readRDS()
+seurat_obj$seurat_clusters <- as.factor(seurat_obj$seurat_clusters)
+
+# Load loom files
+loom_files <- list(
+  PT1 = loomR::connect(file.path(datdir, "PT1.loom"), mode = "r"),
+  PT2 = loomR::connect(file.path(datdir, "PT2.loom"), mode = "r"),
+  PT3 = loomR::connect(file.path(datdir, "PT5.loom"), mode = "r"),
+  RT1 = loomR::connect(file.path(datdir, "RT3.loom"), mode = "r"),
+  RT2 = loomR::connect(file.path(datdir, "RT4.loom"), mode = "r"),
+  RT3 = loomR::connect(file.path(datdir, "RT6.loom"), mode = "r")
+)
+
+# Rename barcodes for merging
+rename_barcodes <- function(loom_obj, prefix) {
+  barcodes <- loom_obj$col.attrs$CellID[]
+  barcodes <- paste0(prefix, "_", gsub(":.*", "", barcodes), "-1")
+  return(barcodes)
+}
+
+loom_files <- lapply(names(loom_files), function(prefix) {
+  loom_obj <- loom_files[[prefix]]
+  loom_obj$col.attrs$CellID <- rename_barcodes(loom_obj, prefix)
+  loom_obj
+})
+
+# Extract cancer cells based on metadata
+cancer_meta <- seurat_obj@meta.data %>% 
+  mutate(sample = sub("_.*", "", barcode))
+
+extract_cancer_cells <- function(loom_obj, sample_name) {
+  cancer_barcodes <- cancer_meta %>% 
+    filter(sample == sample_name) %>% 
+    pull(barcode)
+  loom_obj$col.attrs$CellID[] %in% cancer_barcodes
+}
+
+loom_files <- lapply(names(loom_files), function(sample) {
+  loom_files[[sample]][, extract_cancer_cells(loom_files[[sample]], sample)]
+})
+
+# Concatenate loom files
+merged_loom <- do.call(merge, loom_files)
+
+# Integrate loom data into Seurat object
+seurat_obj <- as.Seurat(merged_loom, counts = "spliced", data = "unspliced")
+seurat_obj <- subset(seurat_obj, cells = Cells(seurat_obj))
+
+# Plot UMAP to check clusters
+DimPlot(seurat_obj, group.by = "seurat_clusters") + ggtitle("UMAP Clusters")
+
+# Pre-process for RNA velocity
+seurat_obj <- NormalizeData(seurat_obj)
+seurat_obj <- FindVariableFeatures(seurat_obj)
+seurat_obj <- ScaleData(seurat_obj)
+seurat_obj <- RunPCA(seurat_obj)
+seurat_obj <- RunUMAP(seurat_obj, dims = 1:30)
+
+# Compute RNA velocity
+seurat_obj <- RunVelocity(seurat_obj, deltaT = 1, kCells = 25, fit.quantile = 0.02)
+
+# Visualize velocity fields
+VelocityPlot(seurat_obj, group.by = "seurat_clusters", ncol = 2)
+
+# Save processed Seurat object
+saveRDS(seurat_obj, file.path(datdir, "seurat_obj_velocity.rds"))
+
+```
