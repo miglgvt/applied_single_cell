@@ -4,47 +4,6 @@ format: html
 editor: visual
 ---
 
-```{r}
-library(Seurat)
-library(Signac)
-library(ggplot2)
-```
-
-```{r}
-atac.integrated <- readRDS('data/scATAC/atac.integrated.rds')
-rna.integrated <- readRDS('data/scRNA/rna.integrated.rds')
-```
-
-```{r}
-rna.integrated <- NormalizeData(rna.integrated)
-rna.integrated <- FindVariableFeatures(rna.integrated)
-rna.integrated <- ScaleData(rna.integrated)
-rna.integrated <- RunPCA(rna.integrated)
-rna.integrated <- RunUMAP(rna.integrated, dims = 1:30)
-
-atac.integrated <- RunTFIDF(atac.integrated)
-atac.integrated <- FindTopFeatures(atac.integrated, min.cutoff = "q0")
-atac.integrated <- RunSVD(atac.integrated)
-atac.integrated <- RunUMAP(atac.integrated, reduction = "lsi", dims = 2:30, reduction.name = "umap.atac", reduction.key = "atacUMAP_")
-
-```
-
-## Identifying anchors between scRNA-seq and scATAC-seq datasets
-
-```{r}
-# quantify gene activity
-gene.activities <- GeneActivity(atac.integrated, features = VariableFeatures(rna.integrated))
-
-```
-
-## Cell Type Annotation
-
-```{r}
-#Load SingleR library
-library(SingleR)
-library(SingleCellExperiment)
-```
-
 1.  Cell clustering
 
 ```{r}
@@ -134,7 +93,12 @@ Subsetting by breast tissue
 ```{r}
 # Subset Seurat object by tissue
 ref_dataset_breast <- subset(ref_dataset, subset = tissue == "breast")
+```
 
+Tranform reference dataset into singlecellexperiment object
+
+```{r}
+sce <- as.SingleCellExperiment(ref_dataset)
 ```
 
 2.  Run SingleR
@@ -143,7 +107,7 @@ ref_dataset_breast <- subset(ref_dataset, subset = tissue == "breast")
 # Run SingleR for annotation
 annotations <- SingleR(
   test = query,
-  ref = ref_dataset,
+  ref = sce,
   labels = ref_dataset$cell_type,
   de.method = 'wilcox' 
 )
@@ -176,4 +140,37 @@ DimPlot(query_dataset, group.by = "SingleR.labels", label = TRUE, repel = TRUE)
 
 ```{r}
 saveRDS(query_dataset, "/path/to/annotated_query_dataset.rds")
+```
+
+```{r}
+library(Seurat)
+library(Signac)
+library(ggplot2)
+```
+
+```{r}
+atac.integrated <- readRDS('data/scATAC/atac.integrated.rds')
+rna.integrated <- readRDS('data/scRNA/rna.integrated.rds')
+```
+
+```{r}
+rna.integrated <- NormalizeData(rna.integrated)
+rna.integrated <- FindVariableFeatures(rna.integrated)
+rna.integrated <- ScaleData(rna.integrated)
+rna.integrated <- RunPCA(rna.integrated)
+rna.integrated <- RunUMAP(rna.integrated, dims = 1:30)
+
+atac.integrated <- RunTFIDF(atac.integrated)
+atac.integrated <- FindTopFeatures(atac.integrated, min.cutoff = "q0")
+atac.integrated <- RunSVD(atac.integrated)
+atac.integrated <- RunUMAP(atac.integrated, reduction = "lsi", dims = 2:30, reduction.name = "umap.atac", reduction.key = "atacUMAP_")
+
+```
+
+## Identifying anchors between scRNA-seq and scATAC-seq datasets
+
+```{r}
+# quantify gene activity
+gene.activities <- GeneActivity(atac.integrated, features = VariableFeatures(rna.integrated))
+
 ```
