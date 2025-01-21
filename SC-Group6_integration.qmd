@@ -1,0 +1,563 @@
+---
+title: "Single-Cell"
+format: html
+editor: visual
+---
+
+```{r}
+library(Seurat)
+library(SeuratObject)
+library(tidyverse)
+library(scuttle)
+library(scDblFinder)
+library(ggplot2)
+#library(writexl)
+#library(SeuratDisk)
+library(celldex)
+library(sctransform)
+library(readxl)
+```
+
+```{r}
+# Load scRNA-seq
+PT1 <- Read10X(data.dir = 'data/scRNA/PT1')
+PT2 <- Read10X(data.dir = 'data/scRNA/PT2')
+RT3 <- Read10X(data.dir = 'data/scRNA/RT3')
+RT4 <- Read10X(data.dir = 'data/scRNA/RT4')
+
+NT7 <- Read10X(data.dir = 'data/scRNA/NT7')
+NT8 <- Read10X(data.dir = 'data/scRNA/NT8')
+PT5 <- Read10X(data.dir = 'data/scRNA/PT5')
+RT6 <- Read10X(data.dir = 'data/scRNA/RT6')
+
+PT1.seu <- CreateSeuratObject(counts = PT1, project = "PT1", min.cells = 3, min.features = 200)
+PT2.seu <- CreateSeuratObject(counts = PT2, project = "PT2", min.cells = 3, min.features = 200)
+PT3.seu <- CreateSeuratObject(counts = PT5, project = "PT3", min.cells = 3, min.features = 200)
+RT1.seu <- CreateSeuratObject(counts = RT3, project = "RT1", min.cells = 3, min.features = 200)
+RT2.seu <- CreateSeuratObject(counts = RT4, project = "RT2", min.cells = 3, min.features = 200)
+RT3.seu <- CreateSeuratObject(counts = RT6, project = "RT3", min.cells = 3, min.features = 200)
+NT1.seu <- CreateSeuratObject(counts = NT7, project = "NT1", min.cells = 3, min.features = 200)
+NT2.seu <- CreateSeuratObject(counts = NT8, project = "NT2", min.cells = 3, min.features = 200)
+
+rm(PT1)
+rm(PT2)
+rm(RT3)
+rm(RT4)
+rm(NT7)
+rm(NT8)
+rm(PT5)
+rm(RT6)
+
+```
+
+```{r}
+
+
+# Save each Seurat object as an .rds file
+saveRDS(PT1.seu, file = "data/scRNA/PT1_seurat.rds")
+saveRDS(PT2.seu, file = "data/scRNA/PT2_seurat.rds")
+saveRDS(PT3.seu, file = "data/scRNA/PT3_seurat.rds")
+saveRDS(RT1.seu, file = "data/scRNA/RT1_seurat.rds")
+saveRDS(RT2.seu, file = "data/scRNA/RT2_seurat.rds")
+saveRDS(RT3.seu, file = "data/scRNA/RT3_seurat.rds")
+saveRDS(NT1.seu, file = "data/scRNA/NT1_seurat.rds")
+saveRDS(NT2.seu, file = "data/scRNA/NT2_seurat.rds")
+
+
+
+
+```
+
+```{r}
+# Load Seurat objects from .rds files
+PT1.seu <- readRDS("data/scRNA/PT1_seurat.rds")
+PT2.seu <- readRDS("data/scRNA/PT2_seurat.rds")
+PT3.seu <- readRDS("data/scRNA/PT3_seurat.rds")
+RT1.seu <- readRDS("data/scRNA/RT1_seurat.rds")
+RT2.seu <- readRDS("data/scRNA/RT2_seurat.rds")
+RT3.seu <- readRDS("data/scRNA/RT3_seurat.rds")
+NT1.seu <- readRDS("data/scRNA/NT1_seurat.rds")
+NT2.seu <- readRDS("data/scRNA/NT2_seurat.rds")
+
+```
+
+```{r}
+seurat_list <- c('PT1' = PT1.seu, 'PT2' = PT2.seu, 'PT3' = PT3.seu,
+                 'RT1' = RT1.seu, 'RT2' = RT2.seu, 'RT3' = RT3.seu,
+                 'NT1' = NT1.seu, 'NT2' = NT2.seu)
+```
+
+Start with preprocessing
+
+```{r}
+sample.nfeature.cut <- c()
+sample.ncount.cut <- c()
+sample.mt.cut <- c()
+seurat_list_qc <- c()
+```
+
+```{r}
+count <- 1
+
+
+for (obj in seurat_list) {
+  print(names(seurat_list)[count])
+  
+  # Add percent.mt for QC
+  obj[["percent.mt"]] <- PercentageFeatureSet(obj, pattern = "^MT-")
+  
+  # Visualize initial features
+  print(VlnPlot(obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3))
+  
+  count <- 1 + count
+  
+}
+  
+
+
+```
+
+```{r}
+#Define cutoffs based on the violin plots
+cutoffs <- list(
+  "PT1" = list(nFeature_lower = 200, nFeature_upper = 11000, nCount_lower = 200, nCount_upper = 100000, percent_mt_upper = 40),
+  "PT2" = list(nFeature_lower = 200, nFeature_upper = 10000, nCount_lower = 200, nCount_upper = 90000, percent_mt_upper = 30),
+  "PT3" = list(nFeature_lower = 200, nFeature_upper = 11000, nCount_lower = 200, nCount_upper = 100000, percent_mt_upper = 30),
+  "RT1" = list(nFeature_lower = 200, nFeature_upper = 10000, nCount_lower = 200, nCount_upper = 70000, percent_mt_upper = 12),
+  "RT2" = list(nFeature_lower = 200, nFeature_upper = 9000, nCount_lower = 200, nCount_upper = 75000, percent_mt_upper = 12),
+  "RT3" = list(nFeature_lower = 200, nFeature_upper = 11000, nCount_lower = 200, nCount_upper = 150000, percent_mt_upper = 20),
+  "NT1" = list(nFeature_lower = 200, nFeature_upper = 10000, nCount_lower = 200, nCount_upper = 100000, percent_mt_upper = 20),
+  "NT2" = list(nFeature_lower = 200, nFeature_upper = 10000, nCount_lower = 200, nCount_upper = 90000, percent_mt_upper = 30)
+)  
+
+
+  
+#Now, run QC
+
+count <- 1
+
+for (obj in seurat_list) {
+  
+  # Add percent.mt for QC
+  obj[["percent.mt"]] <- PercentageFeatureSet(obj, pattern = "^MT-")
+  
+  
+  cutoff <- cutoffs[[names(seurat_list)[count]]]
+  
+  # Update the original object in the seurat_list
+  seurat_list[[count]] <- obj
+  
+  # Doublet detection
+  print("Start doublet detection")
+  sce <- as.SingleCellExperiment(obj)
+  
+  # Add logcounts if missing
+  if (!"logcounts" %in% assayNames(sce)) {
+    logcounts(sce) <- log1p(counts(sce))
+  }
+  
+  # Perform scDblFinder
+  sce <- scDblFinder(sce)
+  print("Doublets ok")
+  
+  obj <- as.Seurat(sce)
+  
+  # # Reconstruct Seurat object
+  # counts_matrix <- counts(sce)  # Extract counts
+  # meta_data <- as.data.frame(colData(sce))  # Extract metadata
+  # 
+  # # Create Seurat object manually
+  # obj <- CreateSeuratObject(counts = counts_matrix, meta.data = meta_data)
+  
+  # # Normalize data (logcounts)
+  # if ("logcounts" %in% assayNames(sce)) {
+  #   obj <- NormalizeData(obj, normalization.method = "LogNormalize", scale.factor = 10000)
+  # }
+  
+  # Scale data if needed (optional for downstream analysis)
+  # obj <- ScaleData(obj)
+  # 
+  print("Seurat reconstructed.")
+
+  sample.nfeature.cut <- c(sample.nfeature.cut, cutoff$nFeature_upper)
+  sample.ncount.cut <- c(sample.ncount.cut, cutoff$nCount_upper)
+  sample.mt.cut <- c(sample.mt.cut, cutoff$percent_mt_upper)
+  
+  # Perform QC filtering
+  
+  obj.filt <- subset(
+    obj,
+    subset = nFeature_RNA >= cutoff$nFeature_lower & 
+             nFeature_RNA <= cutoff$nFeature_upper & 
+             nCount_RNA >= cutoff$nCount_lower & 
+             nCount_RNA <= cutoff$nCount_upper & 
+             percent.mt <= cutoff$percent_mt_upper
+  )
+ 
+  obj.filt <- subset(obj.filt, subset = scDblFinder.class %in% c("singlet"))
+  
+  Idents(obj.filt) <- names(seurat_list)[count]
+  
+  # Visualize filtered features
+  print(VlnPlot(obj.filt, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3))
+  
+  seurat_list_qc <- c(seurat_list_qc, obj.filt)
+  print(count)
+  count <- count + 1
+}
+
+
+```
+
+```{r}
+# Name outputs for reference
+names(sample.mt.cut) <- names(seurat_list)
+names(sample.ncount.cut) <- names(seurat_list)
+names(sample.nfeature.cut) <- names(seurat_list)
+names(seurat_list_qc) <- names(seurat_list)
+```
+
+```{r}
+samples <- names(seurat_list)
+samples.ncount.cut.summary <- data.frame(orig.ident=c(samples,samples), 
+                                         types=c(rep('up.cut',length(samples)),
+                                                 rep('down.cut',length(samples))),
+                                         values=c(sample.ncount.cut,sample.ncount.cut/20))
+samples.nfeature.cut.summary <- data.frame(orig.ident=c(samples,samples), 
+                                           types=c(rep('up.cut',length(samples)),
+                                                   rep('down.cut',length(samples))),
+                                           values=c(sample.nfeature.cut,sample.nfeature.cut/20))
+# mt don't need lower cut
+samples.mt.cut.summary <- data.frame(orig.ident=c(samples), 
+                                     types=c(rep('up.cut',length(samples))),
+                                     values=c(sample.mt.cut))
+
+
+# Merge all Seurat objects from the initial list
+merge.seu <- merge(x = seurat_list[[1]], 
+                   y = seurat_list[2:length(seurat_list)], 
+                   add.cell.ids = names(seurat_list), 
+                   project = "MergedSeurat")
+metadata <- merge.seu@meta.data
+
+# Visualize the number of cell counts per sample
+metadata %>% 
+  ggplot(aes(x=orig.ident, fill=orig.ident)) + 
+  geom_bar() +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  ggtitle("NCells")
+
+metadata %>% 
+  ggplot(aes(color=orig.ident, x=nCount_RNA, fill= orig.ident)) + 
+  geom_density(alpha=.5) +
+  scale_x_log10() +
+  theme_classic() +
+  geom_vline(data = samples.ncount.cut.summary, 
+             aes(xintercept = values), 
+             linetype = "dashed",show.legend = F) +
+  facet_wrap(~orig.ident,ncol = 4)
+
+metadata %>% 
+  ggplot(aes(color=orig.ident, x=nFeature_RNA, fill= orig.ident)) + 
+  geom_density(alpha=.5) +
+  scale_x_log10() +
+  theme_classic() +
+  geom_vline(data = samples.nfeature.cut.summary, 
+             aes(xintercept = values), 
+             linetype = "dashed",show.legend = F) +
+  facet_wrap(~orig.ident,ncol = 4)
+
+metadata %>%
+  ggplot(aes(color=orig.ident, x=percent.mt, fill= orig.ident)) +
+  geom_density(alpha=.5) +
+  scale_x_log10() +
+  theme_classic() +
+  geom_vline(data = samples.mt.cut.summary,
+             aes(xintercept = values),
+             linetype = "dashed",show.legend = F) +
+  facet_wrap(~orig.ident,ncol = 4)
+
+metadata %>%
+  ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=percent.mt)) +
+  geom_point() +
+  scale_colour_gradient(low = "gray90", high = "black") +
+  geom_smooth(se=TRUE,level=0.9) +
+  scale_x_log10() +
+  scale_y_log10() +
+  theme_classic() +
+  geom_vline(data = samples.ncount.cut.summary,
+             aes(xintercept = values),
+             linetype = "dashed",show.legend = F)+
+  geom_hline(data = samples.nfeature.cut.summary,
+             aes(yintercept = values),
+             linetype = "dashed",show.legend = F) +
+  facet_wrap(~orig.ident,ncol = 4)
+
+merge.qc.seu <- merge(x=seurat_list_qc[[1]], y=seurat_list_qc[2:length(seurat_list_qc)])
+
+metadata.qc <- merge.qc.seu@meta.data
+metadata.qc %>% 
+  ggplot(aes(x=orig.ident, fill=orig.ident)) + 
+  geom_bar() +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  theme(plot.title = element_text(hjust=0.5, face="bold")) +
+  ggtitle("NCells")
+
+metadata.qc %>% 
+  ggplot(aes(color=orig.ident, x=nCount_RNA, fill= orig.ident)) + 
+  geom_density(alpha=.5) +
+  scale_x_log10() +
+  theme_classic() +
+  geom_vline(data = samples.ncount.cut.summary, 
+             aes(xintercept = values), 
+             linetype = "dashed",show.legend = F) +
+  facet_wrap(~orig.ident,ncol=4)
+
+metadata.qc %>% 
+  ggplot(aes(color=orig.ident, x=nFeature_RNA, fill= orig.ident)) + 
+  geom_density(alpha=.5) +
+  scale_x_log10() +
+  theme_classic() +
+  geom_vline(data = samples.nfeature.cut.summary, 
+             aes(xintercept = values), 
+             linetype = "dashed",show.legend = F) +
+  facet_wrap(~orig.ident,ncol=4)
+
+metadata.qc %>% 
+  ggplot(aes(color=orig.ident, x=percent.mt, fill= orig.ident)) + 
+  geom_density(alpha=.5) +
+  scale_x_log10() +
+  theme_classic() +
+  geom_vline(data = samples.mt.cut.summary, 
+             aes(xintercept = values), 
+             linetype = "dashed",show.legend = F) +
+  facet_wrap(~orig.ident,ncol=4)
+
+metadata.qc %>% 
+  ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=percent.mt)) + 
+  geom_point() + 
+  scale_colour_gradient(low = "gray90", high = "black") +
+  geom_smooth(se=TRUE,level=0.9) +
+  scale_x_log10() +
+  scale_y_log10() +
+  theme_classic() +
+  geom_vline(data = samples.ncount.cut.summary, 
+             aes(xintercept = values), 
+             linetype = "dashed",show.legend = F)+
+  geom_hline(data = samples.nfeature.cut.summary, 
+             aes(yintercept = values), 
+             linetype = "dashed",show.legend = F) +
+  facet_wrap(~orig.ident,ncol=4)
+```
+
+Plot uMAP before integration
+
+After the QC has been carried out, we need to integrate the scRNAseq and the scATACseq:
+
+Source of integration info: <https://hbctraining.github.io/scRNA-seq_online/lessons/06_integration.html>
+
+I will first try to create a merged object and integrate it:
+
+```{r}
+merged.seu <- merge(seurat_list_qc$PT1, y = c(seurat_list_qc$PT2, seurat_list_qc$PT3,
+                                                 seurat_list_qc$RT1,
+                                                 seurat_list_qc$RT2 ,
+                                              seurat_list_qc$RT3,
+                                              seurat_list_qc$NT1,
+                                              seurat_list_qc$NT2), 
+                       add.cell.ids = c("PT1", "PT2", "PT3", "RT1", "RT2", "RT3", "NT1", "NT2"), 
+                       project = "scRNA_merged")
+```
+
+Check if the data is split. If so, continue
+
+```{r}
+merged.seu <- NormalizeData(merged.seu)
+merged.seu <- FindVariableFeatures(merged.seu)
+merged.seu <- ScaleData(merged.seu)
+merged.seu <- RunPCA(merged.seu)
+```
+
+```{r}
+merged.seu <- FindNeighbors(merged.seu, dims = 1:30, reduction = "pca")
+
+```
+
+```{r}
+
+merged.seu <- FindClusters(merged.seu, resolution = 0.5 , cluster.name = "unintegrated_clusters")
+
+merged.seu <- RunUMAP(merged.seu, dims = 1:30, reduction = "pca", reduction.name = "umap.unintegrated")
+
+DimPlot(merged.seu, reduction = "umap.unintegrated", group.by = c("orig.ident", "seurat_clusters"))
+```
+
+```{r}
+integrated.seu <- merged.seu
+
+integrated.seu[["RNA"]] <- split(integrated.seu[["RNA"]], f = integrated.seu@meta.data$orig.ident)
+
+integrated.seu <- NormalizeData(integrated.seu)
+integrated.seu <- FindVariableFeatures(integrated.seu)
+integrated.seu <- ScaleData(integrated.seu)
+integrated.seu <- RunPCA(integrated.seu)
+
+integrated.seu <- IntegrateLayers(object = integrated.seu, method = CCAIntegration, orig.reduction = "pca", new.reduction = "integrated.cca",
+    verbose = FALSE)
+
+# re-join layers after integration
+integrated.seu[["RNA"]] <- JoinLayers(integrated.seu[["RNA"]])
+
+integrated.seu <- FindNeighbors(integrated.seu, reduction = "integrated.cca", dims = 1:30)
+
+```
+
+```{r}
+integrated.seu <- FindClusters(integrated.seu, resolution = 0.5)
+integrated.seu <- RunUMAP(integrated.seu, dims = 1:30, reduction = "integrated.cca")
+DimPlot(integrated.seu, reduction = "umap", group.by = c("orig.ident", "seurat_clusters"))
+```
+
+```{r}
+saveRDS(integrated.seu, file = "data/scRNA/integratedTT_NT_all.rds")
+
+
+
+```
+
+First, we integrate the scRNAseq:
+
+```{r}
+# seu.TTs.part1 <- merge(seurat_list_qc$PT1, y = c(seurat_list_qc$PT2, 
+#                                                  seurat_list_qc$RT1,
+#                                                  seurat_list_qc$RT2), 
+#                        add.cell.ids = c("PT1", "PT2", "RT1", "RT2"), 
+#                        project = "scRNA_09302020")
+# 
+# seu.TTs.part2 <- merge(seurat_list_qc$PT3, y = c(seurat_list_qc$RT3), 
+#                        add.cell.ids = c("PT3", "RT3"), 
+#                        project = "scRNA_01112021")
+```
+
+Save intermediate objects
+
+```{r}
+# # Save each Seurat object as an .rds file
+# saveRDS(seu.TTs.part1, file = "data/scRNA/TTs.part1.rds")
+# saveRDS(seu.TTs.part2, file = "data/scRNA/TTs.part2.rds")
+
+```
+
+```{r}
+# TTs.unintegrated <- merge(seurat_list_qc$PT1, y = c(seurat_list_qc$PT2,                          seurat_list_qc$RT1,                                   seurat_list_qc$RT2,
+# seurat_list_qc$PT3,
+# seurat_list_qc$RT3), add.cell.ids = c("PT1", "PT2", "RT1", "RT2", "RT3", "PT3"),                       project = "scRNA_TTs_unintegrated")
+
+```
+
+```{r}
+# TTs.unintegrated <- NormalizeData(TTs.unintegrated)
+# TTs.unintegrated <- FindVariableFeatures(TTs.unintegrated)
+# TTs.unintegrated <- ScaleData(TTs.unintegrated)
+# TTs.unintegrated  <- RunPCA(TTs.unintegrated, npcs = 30, verbose = FALSE)
+# TTs.unintegrated <- RunUMAP(TTs.unintegrated, reduction = "pca", dims = 1:30)
+# TTs.unintegrated <- FindNeighbors(TTs.unintegrated, reduction = "pca", dims = 1:30)
+# TTs.unintegrated <- FindClusters(TTs.unintegrated, resolution = 0.9, algorithm = 2)
+
+```
+
+```{r}
+# DimPlot(TTs.unintegrated, reduction="umap")
+```
+
+```{r}
+# saveRDS(TTs.unintegrated, file = "data/scRNA/TTs.unintegrated.rds")
+
+```
+
+```{r}
+# seu.batchs.list <- c("seu.TTs.batch1"=seu.TTs.part1, "seu.TTs.batch2"=seu.TTs.part2) 
+# seurat.qc.sct.list <- lapply(X = seu.batchs.list, FUN = function(x) {
+#   x <- SCTransform(x, vst.flavor = "v2", verbose = FALSE)
+# })
+# 
+# features <- SelectIntegrationFeatures(object.list = seurat.qc.sct.list, nfeatures = 3000)
+# seurat.qc.sct.list <- PrepSCTIntegration(object.list = seurat.qc.sct.list, anchor.features = features)
+```
+
+```{r}
+# batchs.anchors <- FindIntegrationAnchors(object.list = seurat.qc.sct.list, normalization.method = "SCT",
+#                                          anchor.features = features)
+# 
+# common_genes <- Reduce(intersect, list(rownames(seu.TTs.part1),rownames(seu.TTs.part2)))
+
+```
+
+```{r}
+
+# TTs.combined.sct <- IntegrateData(anchorset = batchs.anchors, 
+#                                   normalization.method = "SCT",
+#                                   features.to.integrate = common_genes)
+# 
+# TTs.combined.sct <- RunPCA(TTs.combined.sct, npcs = 30, verbose = FALSE)
+# 
+# ElbowPlot(TTs.combined.sct)
+```
+
+```{r}
+# TTs.combined.sct <- RunUMAP(TTs.combined.sct, reduction = "pca", dims = 1:30)
+# TTs.combined.sct <- FindNeighbors(TTs.combined.sct, reduction = "pca", dims = 1:30)
+# TTs.combined.sct <- FindClusters(TTs.combined.sct, resolution = 0.9)
+```
+
+```{r}
+# DimPlot(TTs.combined.sct, reduction = "umap")
+```
+
+```{r}
+# saveRDS(TTs.combined.sct, file = "data/scRNA/TTs.combined.sct")
+
+```
+
+Integrate normal tissue samples:
+
+```{r}
+# NTs.seu <- merge(seurat_list_qc$NT1, y = c(seurat_list_qc$NT2), 
+#                  add.cell.ids = c("NT1", "NT2"), 
+#                  project = "scRNA_NTs")
+# 
+# # Run the standard workflow for visualization and clustering
+# NTs.seu.sct <- SCTransform(NTs.seu, method = "glmGamPoi", vars.to.regress = "percent.mt",
+#                            verbose = FALSE)
+# NTs.seu <- RunPCA(NTs.seu, npcs = 30, verbose = FALSE)
+# NTs.seu <- RunUMAP(NTs.seu, reduction = "pca", dims = 1:30)
+# NTs.seu <- FindNeighbors(NTs.seu, reduction = "pca", dims = 1:30)
+# NTs.seu <- FindClusters(NTs.seu, resolution = 0.9, algorithm = 2)
+# 
+# # check the cluster location
+# DimPlot(NTs.seu, label=TRUE, repel = T, reduction = "umap")
+```
+
+```{r}
+# NTs.unintegrated <- merge(seurat_list_qc$NT1, y = c(seurat_list_qc$NT2), 
+#                  add.cell.ids = c("NT1", "NT2"), 
+#                  project = "scRNA_NTs_unintegrated")
+# 
+# NTs.unintegrated <- NormalizeData(NTs.unintegrated)
+# NTs.unintegrated <- FindVariableFeatures(NTs.unintegrated)
+# NTs.unintegrated <- ScaleData(NTs.unintegrated)
+# NTs.unintegrated  <- RunPCA(NTs.unintegrated, npcs = 30, verbose = FALSE)
+# NTs.unintegrated <- RunUMAP(NTs.unintegrated, reduction = "pca", dims = 1:30)
+# NTs.unintegrated <- FindNeighbors(NTs.unintegrated, reduction = "pca", dims = 1:30)
+# NTs.unintegrated <- FindClusters(NTs.unintegrated, resolution = 0.9, algorithm = 2)
+# DimPlot(NTs.unintegrated, reduction="umap")
+```
+
+Save objects:
+
+```{r}
+# saveRDS(TTs.unintegrated, file = "data/scRNA/TTs_unintegrated.rds")
+```
