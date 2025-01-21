@@ -333,6 +333,8 @@ for (name in names(seurat_list_qc)) {
 
 # Integration
 
+## Tumour Tissues
+
 ```{r}
 NTs.combined.seu.filtered <- seurat_list_qc[["NT"]]
 TTs.batch1.seu.filtered <- seurat_list_qc[["Batch 1"]]
@@ -409,10 +411,6 @@ saveRDS(TTs.integrated, 'data/scATAC/integration/TTs.atac.integrated.rds' )
 ```
 
 ## All datasets
-
-```{r}
-
-```
 
 ```{r}
 TTs.atac.combined <- readRDS('data/scATAC/integration/TTs.atac.combined.rds')
@@ -503,4 +501,82 @@ atac.integrated <- RunSVD(atac.integrated)
 
 ```{r}
 saveRDS(atac.integrated, "data/scATAC/atac.integrated.rds")
+```
+
+## Reduced Tumour + Normal
+
+```{r}
+NTs.combined.seu.filtered <- readRDS('data/scATAC/filtered/NTs.atac.seu.filtered.rds')
+TTs.batch1.seu.filtered <- readRDS('data/scATAC/filtered/TTs.batch1.atac.seu.filtered.rds')
+```
+
+```{r}
+# simple merge
+reduced.atac.combined <- merge(NTs.combined.seu.filtered, TTs.batch1.seu.filtered)
+
+# process the combined dataset
+reduced.atac.combined <- FindTopFeatures(reduced.atac.combined, min.cutoff = 10)
+reduced.atac.combined <- RunTFIDF(reduced.atac.combined)
+reduced.atac.combined <- RunSVD(reduced.atac.combined)
+reduced.atac.combined <- RunUMAP(reduced.atac.combined, reduction = "lsi", dims = 2:30)
+reduced.atac.combined$sample <- str_split_i(rownames(reduced.atac.combined@meta.data),"_",1)
+```
+
+```{r}
+saveRDS(reduced.atac.combined, 'data/scATAC/integration/reduced.atac.combined.rds')
+```
+
+```{r}
+# reduced.atac.combined <- readRDS('data/scATAC/integration/reduced.atac.combined.rds')
+```
+
+```{r}
+p1 <- DimPlot(reduced.atac.combined, group.by = "sample")
+```
+
+```{r}
+# anchor integration
+peaks.use.reduced <- Reduce(intersect, list(rownames(NTs.combined.seu.filtered), 
+                                    rownames(TTs.batch1.seu.filtered)))
+```
+
+```{r}
+#To speed up the following process, we will work in parallel. Load the library "Future" and set the plan to "multisession".
+# library(future)
+# plan("multisession", workers = 4) # Do not change it, or it might crash.
+# options(future.globals.maxSize = 20000 * 1024^2)
+
+integration.anchors.reduced <- FindIntegrationAnchors(
+  object.list = list(NTs.combined.seu.filtered, TTs.batch1.seu.filtered),
+  anchor.features = peaks.use.reduced,
+  reduction = "rlsi",
+  dims = 2:30
+)
+
+# integrate LSI embeddings
+reduced.atac.integrated <- IntegrateEmbeddings(
+  anchorset = integration.anchors.reduced,
+  reductions = reduced.atac.combined[["lsi"]],
+  new.reduction.name = "integrated_lsi",
+  dims.to.integrate = 1:30
+)
+```
+
+```{r}
+reduced.atac.integrated <- RunUMAP(reduced.atac.integrated, reduction = "integrated_lsi", dims = 2:30)
+reduced.atac.integrated$sample <- str_split_i(rownames(reduced.atac.integrated@meta.data),"_",1)
+
+p2 <- DimPlot(reduced.atac.integrated, group.by = "sample")
+
+(p1 + ggtitle("Merged")) | (p2 + ggtitle("Integrated"))
+```
+
+```{r}
+reduced.atac.integrated <- RunTFIDF(reduced.atac.integrated)
+reduced.atac.integrated <- FindTopFeatures(reduced.atac.integrated, min.cutoff = 'q0')
+reduced.atac.integrated <- RunSVD(reduced.atac.integrated)
+```
+
+```{r}
+saveRDS(reduced.atac.integrated, "data/scATAC/reduced.atac.integrated.rds")
 ```
