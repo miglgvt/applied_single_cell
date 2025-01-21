@@ -411,29 +411,53 @@ saveRDS(TTs.integrated, 'data/scATAC/integration/TTs.atac.integrated.rds' )
 ## All datasets
 
 ```{r}
-# simple merge
-all.atac.combined <- merge(NTs.combined.seu.filtered, TTs.integrated)
 
-# process the combined dataset
-all.atac.combined <- FindTopFeatures(all.atac.combined, min.cutoff = 10)
-all.atac.combined <- RunTFIDF(all.atac.combined)
-all.atac.combined <- RunSVD(all.atac.combined)
-all.atac.combined <- RunUMAP(all.atac.combined, reduction = "lsi", dims = 2:30)
-all.atac.combined$sample <- str_split_i(rownames(all.atac.combined@meta.data),"_",1)
-p1 <- DimPlot(all.atac.combined, group.by = "sample")
+```
+
+```{r}
+TTs.atac.combined <- readRDS('data/scATAC/integration/TTs.atac.combined.rds')
+TTs.integrated <- readRDS('data/scATAC/integration/TTs.atac.integrated.rds')
 ```
 
 ```{r}
 NTs.combined.seu.filtered <- FindTopFeatures(NTs.combined.seu.filtered, min.cutoff = 10)
 NTs.combined.seu.filtered <- RunTFIDF(NTs.combined.seu.filtered)
 NTs.combined.seu.filtered <- RunSVD(NTs.combined.seu.filtered)
-NTs.combined.seu.filtered <- RunUMAP(NTs.combined.seu.filtered, reduction = "lsi", dims = 2:30)
+NTs.combined.seu.filtered <- RunUMAP(NTs.combined.seu.filtered, dims = 2:30, reduction = "lsi")
 
 TTs.integrated <- FindTopFeatures(TTs.integrated, min.cutoff = 10)
 TTs.integrated <- RunTFIDF(TTs.integrated)
 TTs.integrated <- RunSVD(TTs.integrated)
-TTs.integrated <- RunUMAP(TTs.integrated, reduction = "lsi", dims = 2:30)
+TTs.integrated <- RunUMAP(TTs.integrated, dims = 2:30, reduction = "lsi")
+```
 
+```{r}
+# simple merge
+all.atac.combined <- merge(NTs.combined.seu.filtered, TTs.integrated)
+```
+
+```{r}
+# process the combined dataset
+all.atac.combined <- FindTopFeatures(all.atac.combined, min.cutoff = 10)
+all.atac.combined <- RunTFIDF(all.atac.combined)
+all.atac.combined <- RunSVD(all.atac.combined)
+all.atac.combined <- RunUMAP(all.atac.combined, dims = 2:30, reduction = "lsi")
+all.atac.combined$sample <- str_split_i(rownames(all.atac.combined@meta.data),"_",1)
+```
+
+```{r}
+p1 <- DimPlot(all.atac.combined, group.by = "sample")
+```
+
+```{r}
+saveRDS(all.atac.combined, 'data/scATAC/integration/all.atac.combined.rds')
+```
+
+```{r}
+all.atac.combined <- readRDS('data/scATAC/integration/all.atac.combined.rds')
+```
+
+```{r}
 # anchor integration
 peaks.use.all <- Reduce(intersect, list(rownames(NTs.combined.seu.filtered), 
                                     rownames(TTs.integrated)))
@@ -441,9 +465,9 @@ peaks.use.all <- Reduce(intersect, list(rownames(NTs.combined.seu.filtered),
 
 ```{r}
 #To speed up the following process, we will work in parallel. Load the library "Future" and set the plan to "multisession".
-library(future)
-plan("multisession", workers = 4) # Do not change it, or it might crash.
-options(future.globals.maxSize = 15000 * 1024^2)
+# library(future)
+# plan("multisession", workers = 4) # Do not change it, or it might crash.
+# options(future.globals.maxSize = 20000 * 1024^2)
 
 integration.anchors.all <- FindIntegrationAnchors(
   object.list = list(NTs.combined.seu.filtered, TTs.integrated),

@@ -37,7 +37,7 @@ gene.activities <- GeneActivity(atac.integrated, features = VariableFeatures(rna
 
 ```
 
-Annotation
+## Cell Type Annotation
 
 ```{r}
 #Load SingleR library
@@ -47,7 +47,7 @@ library(SingleCellExperiment)
 
 ```{r}
 # Load the dataset
-query_dataset <- readRDS("/home/projects/applied_single_cell/data/reference_dataset.rds")
+query_dataset <- readRDS("/home/projects/applied_single_cell/data/breast_cancer_dataset.rds")
 ```
 
 ```{r}
