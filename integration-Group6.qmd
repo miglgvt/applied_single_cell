@@ -45,50 +45,121 @@ library(SingleR)
 library(SingleCellExperiment)
 ```
 
-Load reference dataset
+1.  Cell clustering
+
+```{r}
+
+NTs.seu <- RunUMAP(NTs.seu, reduction = "pca", dims = 1:30)
+NTs.seu <- FindNeighbors(NTs.seu, reduction = "pca", dims = 1:30)
+
+# Run FindClusters using three different resolutions
+NTs.seu <- FindClusters(NTs.seu, resolution = 0.3, algorithm = 2)
+NTs.seu <- FindClusters(NTs.seu, resolution = 0.9, algorithm = 2)
+NTs.seu <- FindClusters(NTs.seu, resolution = 0.5, algorithm = 2)
+
+# check the cluster location
+DimPlot(NTs.seu, label=TRUE, group.by = "RNA_snn_res.0.9")
+
+# check the cluster location
+DimPlot(NTs.seu, label=TRUE,  group.by = "RNA_snn_res.0.3")
+
+# check the cluster location
+DimPlot(NTs.seu, label=TRUE,  group.by = "RNA_snn_res.0.5")
+```
+
+Run clustree
+
+```{r}
+library(clustree)
+clustree(NTs.seu, prefix = "RNA_snn_res.")
+
+Idents(NTs.seu) <- "RNA_snn_res.0.9"
+```
+
+```{r}
+# Find markers
+NTs.seu <- SCTransform(NTs.seu, method = "glmGamPoi", vars.to.regress = "percent.mt")
+NTs.seu <- PrepSCTFindMarkers(NTs.seu)
+# Find markers for every cluster compared to all remaining cells, report only the positive ones
+NTs_markers <- FindAllMarkers(object = NTs.seu, 
+                              assay='SCT',
+                              only.pos = TRUE,
+                              logfc.threshold = 0.25)
+
+NTs_top <- NTs_markers %>%
+  group_by(cluster) %>%
+  top_n(n = 20,
+        wt = avg_log2FC)
+
+sheetlist <- list("allPosMarkers"=NTs_markers,"Top20Markers"=NTs_top)
+write_xlsx(sheetlist, '/scratch/u/kfang/scRNA_scATAC/10x_result/scRNA/NTs_markers.xlsx')
+
+# plot stackviolin plot
+NTs.marker <- c("KRT15","KRT16","KRT17", # Basal
+                "ESRP1","ELF3","RARRES1",       # Luminal
+                "TOP2A", "CDK1","MKI67","CENPF", #Luminal Progenitor
+                "COL4A6","COL4A5",
+                "S100A10", "ID1",
+                "CXCL1", "CXCL8", 
+                "CD24")
+
+VlnPlot(NTs.seu, features = NTs.marker,
+        stack=T,pt.size=0,
+        flip = T,
+        add.noise = T) +
+  theme(axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank(),
+        axis.title = element_blank(),
+        axis.text.x = element_text(colour = 'black',size = 14),
+        legend.position = 'none')
+
+```
+
+1.  Load reference dataset
 
 ```{r}
 # Load the dataset
 ref_dataset <- readRDS("/home/people/s233658/projects/applied_single_cell/data/9dff3651-e629-4519-aaab-dbd21b6b02b1.rds")
 ```
 
+Convert cell_type to character
+
 ```{r}
-cell_type <- ref_dataset@meta.data$cell_type
+#Convert cell_type to character
+ref_dataset$cell_type <- as.character(ref_dataset@meta.data$cell_type)
 ```
 
-```{r}
-tissue_type <- ref_dataset@meta.data$tissue
-```
-
-Subsetting by tissue
+Subsetting by breast tissue
 
 ```{r}
-
-# Subset rows where tissue is "breast"
+# Subset Seurat object by tissue
 ref_dataset_breast <- subset(ref_dataset, subset = tissue == "breast")
-```
-
-```{}
-```
-
-```{r}
-# Transform the reference Seurat Object to a SCE object 
-query <- as.SingleCellExperiment(query_dataset, assay = "RNA")
 
 ```
+
+2.  Run SingleR
 
 ```{r}
 # Run SingleR for annotation
 annotations <- SingleR(
   test = query,
-  ref = ref,
-  labels = ref$label.main  # Adjust to match the labels in your reference
+  ref = ref_dataset,
+  labels = ref_dataset$cell_type,
+  de.method = 'wilcox' 
 )
+```
 
+Inspect quality predictions
+
+```{r}
 # Inspect the resulting annotations
 head(annotations)
-
+# Inspect quality of the predictions
+plotScoreHeatmap(ct_ann)
+plotDeltaDistribution(ct_ann, ncol = 4, dots.on.top = FALSE)
 ```
+
+3.  Add SingleR predictions to Seurat object
 
 ```{r}
 # Add annotations to Seurat metadata
