@@ -1,0 +1,74 @@
+---
+title: "velocity-dion"
+format: html
+editor: visual
+---
+
+## RNA Velocity
+
+```{r}
+library(scuttle)
+library(Seurat)
+library(SeuratObject)
+library(SingleCellExperiment)
+#library(velociraptor)
+library(scran)
+library(ggplot2)
+library(scater)
+```
+
+Loading sample and converting it to SCE object
+
+```{r}
+#REMEMBER: CHANGE THE PATH OF YOUR .RDS OBJECT
+seu_obj <- readRDS('data/scRNA/')
+sce <- as.SingleCellExperiment(seu_obj)
+```
+
+Downsampling:
+
+```{r}
+#sce <- sce[, 1:5000]
+```
+
+We use the variance of log-expressions to select the top 2000 genes
+
+```{r}
+sce <- logNormCounts(sce, assay.type=1)
+dec <- modelGeneVar(sce)
+top.hvgs <- getTopHVGs(dec, n=2000)
+```
+
+Here it uses velociraptor - cant run on server
+
+```{r}
+velo.out <- scvelo(
+  sce, subset.row=top.hvgs, assay.X="spliced",
+  scvelo.params=list(neighbors=list(n_neighbors=30L))
+)
+```
+
+Visualizing
+
+```{r}
+set.seed(100)
+sce <- runPCA(sce, subset_row=top.hvgs)
+sce <- runUMAP(sce, dimred="PCA", n_neighbors=30, min_dist=0.3)
+
+sce$velocity_pseudotime <- velo.out$velocity_pseudotime
+plotUMAP(sce, colour_by="velocity_pseudotime")
+```
+
+Visualize with cute lil arrows capturing the direction
+
+```{r}
+embedded <- embedVelocity(reducedDim(sce, "UMAP"), velo.out)
+
+grid.df <- gridVectors(sce, embedded, use.dimred = "UMAP")
+
+
+plotUMAP(sce, colour_by="velocity_pseudotime") +
+    geom_segment(data=grid.df, mapping=aes(x=start.1, y=start.2, 
+        xend=end.1, yend=end.2, colour=NULL), arrow=arrow(length=unit(0.05, "inches")))
+
+```
