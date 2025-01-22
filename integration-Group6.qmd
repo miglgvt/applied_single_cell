@@ -35,9 +35,14 @@ clustree(TTs.combined.sct, prefix = "integrated_snn_res.")
 Idents(TTs.combined.sct) <- "integrated_snn_res.0.5"
 ```
 
+Annotation with singleR
+
 ```{r}
 library(SingleR)
+library(Seurat)
 library(SingleCellExperiment)
+library(org.Hs.eg.db)
+
 ```
 
 1.  Load reference dataset
@@ -61,30 +66,91 @@ Subsetting by breast tissue
 ref_dataset_breast <- subset(ref_dataset, subset = tissue == "breast")
 ```
 
-```{r}
-dim(ref_dataset_breast)
-```
-
 Tranform reference dataset into singlecellexperiment object
 
 ```{r}
-sce <- as.SingleCellExperiment(ref_dataset)
+sce <- as.SingleCellExperiment(ref_dataset_breast)
 ```
-
-2.  Run SingleR
 
 ```{r}
 integrated.seu <- readRDS("data/scRNA/TTs.combined.sct")
 ```
 
 ```{r}
-# Run SingleR for annotation
-annotations <- SingleR(
-  test = integrated.seu,
-  ref = sce,
-  labels = ref_dataset$cell_type,
-  de.method = 'wilcox' 
+#class(integrated.seu)
+#dim(integrated.seu)
+```
+
+Transforming the seurat object into a matrix
+
+```{r}
+expression_matrix <- GetAssayData(integrated.seu, assay = "RNA", slot = "data")
+```
+
+```{r}
+# Check row names in the test dataset
+head(rownames(expression_matrix))
+
+# Check row names in the reference dataset
+head(rownames(sce))
+
+```
+
+**Map gene identifier:**
+
+Map the gene symbols in your `expression_matrix` to Ensembl IDs to match the reference (`sce`)
+
+```{r}
+# Map gene symbols to Ensembl IDs
+gene_mapping <- AnnotationDbi::select(
+  org.Hs.eg.db,
+  keys = rownames(expression_matrix),  # Use the row names from expression_matrix
+  columns = "ENSEMBL",                 # Target Ensembl IDs
+  keytype = "SYMBOL"                   # Input is gene symbols
 )
+
+# Filter for valid mappings
+valid_genes <- gene_mapping[!is.na(gene_mapping$ENSEMBL), ]
+```
+
+#### **Subset the Test Data to Mapped Genes**
+
+Filter the `expression_matrix` to include only genes with valid mappings and update the row names to Ensembl IDs:
+
+```{r}
+# Subset expression_matrix to include only valid genes
+expression_matrix <- expression_matrix[rownames(expression_matrix) %in% valid_genes$SYMBOL, ]
+
+# Update row names to Ensembl IDs
+rownames(expression_matrix) <- valid_genes$ENSEMBL[match(rownames(expression_matrix), valid_genes$SYMBOL)]
+
+```
+
+#### **Subset Both Datasets to Common Genes**
+
+Now, ensure that both `expression_matrix` and `sce` only include the genes they have in common:
+
+```{r}
+# Identify common genes
+common_genes <- intersect(rownames(expression_matrix), rownames(sce))
+
+# Subset test and reference datasets
+expression_matrix <- expression_matrix[common_genes, ]
+sce <- sce[common_genes, ]
+
+```
+
+```{r}
+# Run SingleR for annotation
+library(SingleR)
+
+annotations <- SingleR(
+  test = as.matrix(expression_matrix),  # Convert to matrix if needed
+  ref = sce,  # Reference dataset
+  labels = sce$cell_type,  # Reference cell type labels
+  de.method = 'wilcox'
+)
+
 ```
 
 Inspect quality predictions
@@ -93,8 +159,8 @@ Inspect quality predictions
 # Inspect the resulting annotations
 head(annotations)
 # Inspect quality of the predictions
-plotScoreHeatmap(ct_ann)
-plotDeltaDistribution(ct_ann, ncol = 4, dots.on.top = FALSE)
+plotScoreHeatmap(annotations)
+plotDeltaDistribution(annotations, ncol = 4, dots.on.top = FALSE)
 ```
 
 3.  Add SingleR predictions to Seurat object

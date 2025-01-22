@@ -450,7 +450,7 @@ If it doesnt crash in integrate data amazing
 ```{r}
 TTs.combined.sct <- IntegrateData(anchorset = batchs.anchors, 
                                   normalization.method = "SCT",
-                                  features.to.integrate = common_genes)
+                                  features.to.integrate = features)
 
 TTs.combined.sct <- RunPCA(TTs.combined.sct, npcs = 30, verbose = FALSE)
 
@@ -469,33 +469,37 @@ DimPlot(TTs.combined.sct, reduction = "umap")
 
 ```{r}
 saveRDS(TTs.combined.sct, file = "data/scRNA/TTs.combined.sct")
+```
 
+```{r}
+saveRDS(TTs.combined.sct, "TTs.combined.sct.rds")
 ```
 
 Integrate normal tissue samples:
 
 ```{r}
-# NTs.seu <- merge(seurat_list_qc$NT1, y = c(seurat_list_qc$NT2), 
-#                  add.cell.ids = c("NT1", "NT2"), 
-#                  project = "scRNA_NTs")
-# 
-# # Run the standard workflow for visualization and clustering
-# NTs.seu.sct <- SCTransform(NTs.seu, method = "glmGamPoi", vars.to.regress = "percent.mt",
-#                            verbose = FALSE)
-# NTs.seu <- RunPCA(NTs.seu, npcs = 30, verbose = FALSE)
-# NTs.seu <- RunUMAP(NTs.seu, reduction = "pca", dims = 1:30)
-# NTs.seu <- FindNeighbors(NTs.seu, reduction = "pca", dims = 1:30)
-# NTs.seu <- FindClusters(NTs.seu, resolution = 0.9, algorithm = 2)
-# 
-# # check the cluster location
-# DimPlot(NTs.seu, label=TRUE, repel = T, reduction="umap")
+NTs.seu <- merge(seurat_list_qc$NT1, y = c(seurat_list_qc$NT2), 
+               add.cell.ids = c("NT1", "NT2"), 
+               project = "scRNA_NTs")
+ 
+# Run the standard workflow for visualization and clustering
+NTs.seu.sct <- SCTransform(NTs.seu, method = "glmGamPoi", 
+                          vars.to.regress = "percent.mt",
+                          verbose = FALSE)
+NTs.seu <- RunPCA(NTs.seu, npcs = 30, verbose = FALSE)
+NTs.seu <- RunUMAP(NTs.seu, reduction = "pca", dims = 1:30)
+NTs.seu <- FindNeighbors(NTs.seu, reduction = "pca", dims = 1:30)
+NTs.seu <- FindClusters(NTs.seu, resolution = 0.9, algorithm = 2)
+ 
+# check the cluster location
+DimPlot(NTs.seu, label=TRUE, repel = T, reduction="umap")
 ```
 
 ```{r}
-# NTs.unintegrated <- merge(seurat_list_qc$NT1, y = c(seurat_list_qc$NT2), 
-#                  add.cell.ids = c("NT1", "NT2"), 
-#                  project = "scRNA_NTs_unintegrated")
-# 
+#NTs.unintegrated <- merge(seurat_list_qc$NT1, y = c(seurat_list_qc$NT2), 
+#                add.cell.ids = c("NT1", "NT2"), 
+#               project = "scRNA_NTs_unintegrated")
+
 # NTs.unintegrated <- NormalizeData(NTs.unintegrated)
 # NTs.unintegrated <- FindVariableFeatures(NTs.unintegrated)
 # NTs.unintegrated <- ScaleData(NTs.unintegrated)
