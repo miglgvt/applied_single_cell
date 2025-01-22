@@ -166,20 +166,15 @@ plotDeltaDistribution(annotations, ncol = 4, dots.on.top = FALSE)
 3.  Add SingleR predictions to Seurat object
 
 ```{r}
-# Add annotations to Seurat metadata
-if (inherits(query_dataset, "Seurat")) {
-  query_dataset[["SingleR.labels"]] <- annotations$labels
-}
+# Add SingleR annotations (pruned labels) to the Seurat metadata
+integrated.seu$SingleR_Labels <- annotations$pruned.labels
+
 ```
 
 ```{r}
 # Seurat DimPlot with annotations
-DimPlot(query_dataset, group.by = "SingleR.labels", label = TRUE, repel = TRUE)
+DimPlot(integrated.seu, group.by = "SingleR_Labels", reduction = "umap")
 
-```
-
-```{r}
-saveRDS(query_dataset, "/path/to/annotated_query_dataset.rds")
 ```
 
 ```{r}
