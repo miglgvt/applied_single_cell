@@ -1,0 +1,159 @@
+---
+title: "trajectory-Group6"
+format: html
+---
+
+```{r}
+library(Seurat)
+library(slingshot)
+library(SingleCellExperiment)
+library(ggplot2)
+library(tradeSeq)
+library(BiocParallel)
+```
+
+```{r}
+integrated.seu <- readRDS("data/scRNA/integratedTT_NT_12.rds")
+```
+
+## Load data
+
+```{r}
+integrated.seu <- FindClusters(integrated.seu, resolution = 0.5, algorithm = 2)
+DimPlot(integrated.seu, label=TRUE, reduction="umap",  group.by = "RNA_snn_res.0.5")
+
+```
+
+```{r}
+Idents(integrated.seu) <- "RNA_snn_res.0.5"
+```
+
+# Vignette
+
+```{r}
+pal <- c(RColorBrewer::brewer.pal(9, "Set1"), RColorBrewer::brewer.pal(8, "Set2"))
+```
+
+```{r}
+dimred <- integrated.seu@reductions$umap@cell.embeddings
+clustering <- integrated.seu$RNA_snn_res.0.5
+
+var_features <- VariableFeatures(integrated.seu)
+```
+
+```{r}
+# Extract the count matrix from the RNA assay
+counts_matrix <- GetAssayData(integrated.seu, assay = "RNA", layer = "counts")
+# Assign rownames and colnames to the sparse matrix
+rownames(counts_matrix) <- rownames(integrated.seu@assays$RNA)
+colnames(counts_matrix) <- colnames(integrated.seu)
+```
+
+```{r}
+counts <- counts_matrix[var_features, ]
+```
+
+```{r}
+lineages <- getLineages(data = dimred, clusterLabels = clustering)
+
+lineages
+```
+
+```{r}
+# Plot the lineages
+par(mfrow = c(1, 2))
+plot(dimred[, 1:2], col = pal[clustering], cex = 0.7, pch = 16)
+for (i in levels(clustering)) {
+    text(mean(dimred[clustering == i, 1]), mean(dimred[clustering == i, 2]), labels = i, font = 2)
+}
+plot(dimred[, 1:2], col = pal[clustering], cex = 0.5, pch = 16)
+lines(SlingshotDataSet(lineages), lwd=2, type = 'lineages', col = c("black"))
+```
+
+```{r}
+curves <- getCurves(SlingshotDataSet(lineages), approx_points = 500, thresh = 0.01, stretch = 0.8, allow.breaks = TRUE, shrink = 0.99)
+curves
+```
+
+```{r}
+# Register a parallel backend with multicore processing
+bpparam <- MulticoreParam(workers = 6) 
+
+set.seed(42)
+sce <- fitGAM(counts = counts[1:500, ], sds = curves, BPPARAM = bpparam)
+```
+
+```{r}
+plotGeneCount(curves, counts, clusters = clustering, models = sce)
+
+p1 <- plotGeneCount(curves, counts, clusters = clustering, models = sce)
+
+# Save the combined plot
+ggsave(
+  filename = "results/trajectory_curves_draft.png", # File name
+  plot = p1,          # The plot object to save
+  width = 10,                    # Width of the image in inches
+  height = 8,                    # Height of the image in inches
+  dpi = 300                      # Resolution in dots per inch
+)
+```
+
+# Second approach
+
+
+```{r}
+sce <- as.SingleCellExperiment(integrated.seu) 
+```
+
+```{r}
+sce <- slingshot(
+  sce,
+  clusterLabels = sce$seurat_clusters,  # Use cluster labels from Seurat
+  reducedDim = "UMAP"                   # Use UMAP embeddings for trajectory inference
+)
+```
+
+```{r}
+umap <- reducedDims(sce)$UMAP
+lineages <- slingCurves(sce)
+```
+
+```{r}
+# Plot UMAP with Slingshot lineages
+plot(
+  umap, col = sce$seurat_clusters, pch = 16, asp = 1,
+  main = "Slingshot Trajectory on UMAP"
+)
+for (i in seq_along(lineages)) {
+  lines(lineages[[i]], lwd = 2, col = "black")
+}
+
+```
+
+```{r}
+# Extract pseudotime values
+pseudotime <- slingPseudotime(sce)
+head(pseudotime)
+```
+
+```{r}
+colnames(integrated.seu@meta.data)
+
+```
+
+```{r}
+# Add pseudotime values back to Seurat object for downstream analysis
+integrated.seu$Pseudotime <- pseudotime[, 1]  # Use the first lineage pseudotime
+
+seu_filtered <- subset(integrated.seu, subset = !is.na(Pseudotime))
+
+```
+
+```{r}
+# Visualize pseudotime using FeaturePlot
+FeaturePlot(integrated.seu, features = "Pseudotime", reduction = "umap") +
+  scale_color_viridis_c() +
+  ggtitle("Pseudotime on UMAP")
+
+```
+

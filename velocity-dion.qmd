@@ -11,7 +11,7 @@ library(scuttle)
 library(Seurat)
 library(SeuratObject)
 library(SingleCellExperiment)
-#library(velociraptor)
+library(velociraptor)
 library(scran)
 library(ggplot2)
 library(scater)
@@ -21,8 +21,12 @@ Loading sample and converting it to SCE object
 
 ```{r}
 #REMEMBER: CHANGE THE PATH OF YOUR .RDS OBJECT
-seu_obj <- readRDS('data/scRNA/')
+seu_obj <- readRDS('data/scRNA/integratedTT_NT_12.rds')
 sce <- as.SingleCellExperiment(seu_obj)
+```
+
+```{r}
+assayNames(sce)
 ```
 
 Downsampling:
@@ -39,7 +43,10 @@ dec <- modelGeneVar(sce)
 top.hvgs <- getTopHVGs(dec, n=2000)
 ```
 
-Here it uses velociraptor - cant run on server
+```{r}
+sce$velocity_pseudotime <- velo.out$velocity_pseudotime
+plotTSNE(sce, colour_by="velocity_pseudotime")
+```
 
 ```{r}
 velo.out <- scvelo(

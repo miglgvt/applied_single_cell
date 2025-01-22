@@ -614,4 +614,3 @@ ggsave(
   dpi = 300                      # Resolution in dots per inch
 )
 ```
-
