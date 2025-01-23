@@ -21,20 +21,17 @@ suppressMessages(library(BSgenome.Hsapiens.UCSC.hg38))
 options(future.globals.maxSize = 1e9)
 ```
 
-
 ```{r}
 TTs.RNA <- ReadRDS('/data/scRNA/TTs.combined.rds')
 TTs.ATAC <- ReadRDS('/data/scATAC/integration/TTs.atac.integrated.rds')
 
 ```
 
-
 ```{r}
 # Convert assays to Assay5 format (if not already)
 TTs.RNA[["RNA"]] <- as(TTs.RNA[["RNA"]], "Assay5")
 TTs.ATAC[["ATAC"]] <- as(TTs.ATAC[["ATAC"]], "Assay5")
 ```
-
 
 ```{r}
 # Assume a gene activity matrix is available
@@ -161,7 +158,7 @@ saveRDS(df.grn, ".data/TTs_final_grn.rds")
 
 ```
 
-#
+# 
 
 ```{r}
 # Define TF colors based on trajectory
@@ -174,7 +171,3 @@ names(tfs.timepoint) <- df.cor$tfs
 GRNPlot(df.grn, tfs.timepoint = tfs.timepoint, show.tf.labels = TRUE)
 
 ```
-
-
-
-

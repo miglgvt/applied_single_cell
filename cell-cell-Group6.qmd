@@ -14,12 +14,14 @@ suppressPackageStartupMessages({
 })
 options(stringsAsFactors = FALSE)
 future::plan("multisession", workers = 4)  # Enable parallel processing
+options(future.globals.maxSize = 10 * 1024^3) 
+
 ```
 
 ## Step 1: Subset seurat objects
+
 ```{r}
 integrated.seu <- readRDS("data/scRNA/TTs.annotated.rds")
-
 ```
 
 ```{r}
@@ -35,13 +37,13 @@ recurrent <- subset(
 ```
 
 ```{r}
-# Normalize Data
-primary <- NormalizeData(primary)
-recurrent <- NormalizeData(recurrent)
-
 # Set Default Assay to RNA
 DefaultAssay(primary) <- "RNA"
 DefaultAssay(recurrent) <- "RNA"
+
+# Normalize Data
+primary <- NormalizeData(primary)
+recurrent <- NormalizeData(recurrent)
 
 # Find Variable Features
 primary <- FindVariableFeatures(primary, selection.method = "vst", nfeatures = 2000)
@@ -51,10 +53,15 @@ recurrent <- FindVariableFeatures(recurrent, selection.method = "vst", nfeatures
 primary <- ScaleData(primary)
 recurrent <- ScaleData(recurrent)
 
+
+# For primary tumor
+primary@meta.data$samples <- primary@meta.data$orig.ident
+
+# For recurrent tumor
+recurrent@meta.data$samples <- recurrent@meta.data$orig.ident
 ```
 
 ## Step 2: Create Separate CellChat Objects for Primary and Recurrent
-
 
 ```{r}
 # For Primary
@@ -67,18 +74,34 @@ cellchat_recurrent@DB <- CellChatDB.human
 
 ```
 
+## Step 3: Load Database
+
 ```{r}
 CellChatDB <- CellChatDB.human 
 showDatabaseCategory(CellChatDB)
 ```
 
+```{r}
 
-## Step 4: Preprocess  the expression data for cell-cell communication analysis
+CellChatDB.use <- subsetDB(CellChatDB, search = c("Secreted Signaling", "ECM-Receptor")) 
+#use all CellChatDB for cell-cell communication analysis
+#CellChatDB.use <- CellChatDB # simply use the default CellChatDB
+showDatabaseCategory(CellChatDB.use)
+```
+
+```{r}
+# set the used database in the object
+cellchat_primary@DB <- CellChatDB.use
+cellchat_recurrent@DB <- CellChatDB.use
+```
+
+## Step 4: Preprocess the expression data for cell-cell communication analysis
 
 ```{r}
 cellchat_primary <- subsetData(cellchat_primary)
 cellchat_primary <- identifyOverExpressedGenes(cellchat_primary)
 cellchat_primary <- identifyOverExpressedInteractions(cellchat_primary)
+
 cellchat_primary <- computeCommunProb(cellchat_primary)
 cellchat_primary <- filterCommunication(cellchat_primary, min.cells = 10)
 cellchat_primary <- computeCommunProbPathway(cellchat_primary)
@@ -86,30 +109,68 @@ cellchat_primary <- aggregateNet(cellchat_primary)
 ```
 
 ```{r}
+# Drop unused levels from the factor
+cellchat_recurrent@idents <- droplevels(cellchat_recurrent@idents)
+
+# Ensure levels exactly match the unique values in the data
+cellchat_recurrent@idents <- factor(cellchat_recurrent@idents, levels = unique(cellchat_recurrent@idents))
+```
+
+```{r}
+levels(cellchat_recurrent@idents)
+```
+
+```{r}
 cellchat_recurrent <- subsetData(cellchat_recurrent)
 cellchat_recurrent <- identifyOverExpressedGenes(cellchat_recurrent)
 cellchat_recurrent <- identifyOverExpressedInteractions(cellchat_recurrent)
+
 cellchat_recurrent <- computeCommunProb(cellchat_recurrent)
 cellchat_recurrent <- filterCommunication(cellchat_recurrent, min.cells = 10)
 cellchat_recurrent <- computeCommunProbPathway(cellchat_recurrent)
 cellchat_recurrent <- aggregateNet(cellchat_recurrent)
 ```
 
+```{r}
+saveRDS(cellchat_primary, 'data/cellchat_primary.rds' )
+saveRDS(cellchat_recurrent, "data/cellchat_recurrent.rds")
+```
 
 # Step 5: Identify and Rank Top Signaling Pathways
 
 ```{r}
 # Rank signaling pathways by communication strength
-primary_pathway_scores <- cellchat_primary@netP$score
-top_primary_pathways <- names(sort(rowMeans(primary_pathway_scores), decreasing = TRUE))[1:5]
+# Extract the probability array
+primary_pathway_prob <- cellchat_primary@netP$prob
+
+# Compute the mean probability for each pathway (third dimension)
+mean_pathway_scores_primary <- apply(primary_pathway_prob, 3, mean)
+
+# Rank the pathways by their mean scores
+top_primary_pathways_primary <- names(sort(mean_pathway_scores_primary, decreasing = TRUE))[1:5]
+
+# Print the top pathways
 print("Top 5 Pathways for Primary:")
 print(top_primary_pathways)
-
 ```
 
 ```{r}
 # Rank signaling pathways by communication strength
-recurrent_pathway_scores <- cellchat_recurrent@netP$score
+# Extract the probability array
+recurrent_pathway_prob <- cellchat_recurrent@netP$prob
+
+# Compute the mean probability for each pathway (third dimension)
+mean_pathway_scores_recurrent <- apply(recurrent_pathway_prob, 3, mean)
+
+# Rank the pathways by their mean scores
+top_recurrent_pathways <- names(sort(mean_pathway_scores_recurrent, decreasing = TRUE))[1:5]
+
+# Print the top pathways
+print("Top 5 Pathways for Recurrent:")
+print(top_recurrent_pathways)
+
+# Rank signaling pathways by communication strength
+recurrent_pathway_scores <- cellchat_recurrent@netP$prob
 top_recurrent_pathways <- names(sort(rowMeans(recurrent_pathway_scores), decreasing = TRUE))[1:5]
 print("Top 5 Pathways for Recurrent:")
 print(top_recurrent_pathways)
@@ -118,36 +179,117 @@ print(top_recurrent_pathways)
 ## Step 6: Visualize Top Pathways
 
 ```{r}
-# Circle plot for the top primary pathway
-par(mfrow = c(1, 1))
-netVisual_aggregate(cellchat_primary, signaling = top_primary_pathways[1], layout = "circle")
-
-# Circle plot for the top recurrent pathway
-par(mfrow = c(1, 1))
-netVisual_aggregate(cellchat_recurrent, signaling = top_recurrent_pathways[1], layout = "circle")
+groupSize <- as.numeric(table(cellchat_recurrent@idents))
+par(mfrow = c(1,2), xpd=TRUE)
+netVisual_circle(cellchat_recurrent@net$count, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Number of interactions")
+netVisual_circle(cellchat_recurrent@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
 ```
 
+```{r}
+groupSize <- as.numeric(table(cellchat_primary@idents))
+par(mfrow = c(1,2), xpd=TRUE)
+netVisual_circle(cellchat_primary@net$count, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Number of interactions")
+netVisual_circle(cellchat_primary@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
+```
 
 ```{r}
+mat <- cellchat_primary@net$weight
+par(mfrow = c(3, 3), xpd = TRUE, mar = c(2, 2, 2, 2)) # Adjust margins if needed
+options(repr.plot.width = 12, repr.plot.height = 12)  # Change the plot dimensions
+for (i in 1:nrow(mat)) {
+  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat2[i, ] <- mat[i, ]
+  netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = T, edge.weight.max = max(mat), title.name = rownames(mat)[i])
+}
+```
+
+```{r}
+mat_recurrent <- cellchat_recurrent@net$weight
+par(mfrow = c(2, 3), xpd = TRUE, mar = c(2, 2, 2, 2)) # Adjust margins if needed
+options(repr.plot.width = 12, repr.plot.height = 10)  # Change the plot dimensions
+for (i in 1:nrow(mat_recurrent)) {
+  mat2 <- matrix(0, nrow = nrow(mat), ncol = ncol(mat), dimnames = dimnames(mat))
+  mat2[i, ] <- mat[i, ]
+  netVisual_circle(mat2, vertex.weight = groupSize, weight.scale = T, edge.weight.max = max(mat), title.name = rownames(mat)[i])
+}
+```
+
+```{r}
+primary_pathways <- cellchat_primary@netP$pathways
+recurrent_pathways <- cellchat_recurrent@netP$pathways
+sym_diff <- function(a,b) setdiff(union(a,b), intersect(a,b))
+
+common_patwhatys <- intersect(cellchat_primary@netP$pathways, cellchat_recurrent@netP$pathways)
+different_pathways <-  sym_diff(cellchat_primary@netP$pathways, cellchat_recurrent@netP$pathways)
+```
+
+```{r}
+common_pathways
+```
+
+```{r}
+
+
+only_primary <- intersect(different_pathways, primary_pathways)
+only_recurrent <- intersect(different_pathways, recurrent_pathways)
+
+print("common")
+common_patwhatys
+
+print("different")
+different_pathways
+
+print("primary only")
+print(only_primary)
+
+print("recurrent only")
+print(only_recurrent)
+```
+
+```{r}
+# Check data structures before plotting
+print(str(cellchat_primary@netP$pathways))
+print(str(cellchat_recurrent@netP$pathways))
+```
+
+```{r}
+par(mfrow=c(1,1))
+netVisual_aggregate(cellchat_primary, signaling = only_primary, layout = "circle")
+
+```
+
+```{r}
+
 # Heatmap for the top primary pathway
-netVisual_heatmap(cellchat_primary, signaling = top_primary_pathways[1], color.heatmap = "Reds")
+netVisual_heatmap(cellchat_primary, signaling = only_primary, color.heatmap = "Reds")
 
 # Heatmap for the top recurrent pathway
-netVisual_heatmap(cellchat_recurrent, signaling = top_recurrent_pathways[1], color.heatmap = "Blues")
+netVisual_heatmap(cellchat_recurrent, signaling = only_recurrent, color.heatmap = "Blues")
 
 ```
 
-## Step 7: Visualize a Specific Pathway 
+## Step 7: Visualize a Specific Pathway
+
 ```{r}
 # Visualize the TNF pathway for primary
-netVisual_aggregate(cellchat_primary, signaling = "TNF", layout = "circle")
-netVisual_heatmap(cellchat_primary, signaling = "TNF", color.heatmap = "Reds")
+netVisual_aggregate(cellchat_primary, signaling = "LAMININ", layout = "circle")
+netVisual_heatmap(cellchat_primary, signaling = "LAMININ", color.heatmap = "Reds")
 
 ```
 
 ```{r}
 # Visualize the TNF pathway for recurrent
-netVisual_aggregate(cellchat_recurrent, signaling = "TNF", layout = "circle")
-netVisual_heatmap(cellchat_recurrent, signaling = "TNF", color.heatmap = "Blues")
+netVisual_aggregate(cellchat_recurrent, signaling = "LAMININ", layout = "circle")
+netVisual_heatmap(cellchat_recurrent, signaling = "LAMININ", color.heatmap = "Blues")
 ```
 
+## Step 8: **Visualize cell-cell communication mediated by multiple ligand-receptors or signaling pathways**
+
+```{r}
+library(ggalluvial)
+netAnalysis_river(cellchat_primary, pattern = "outgoing")
+```
+
+```{r}
+netVisual_bubble(cellchat_recurrent, sources.use = 4, targets.use = c(5:11), remove.isolate = FALSE)
+```
