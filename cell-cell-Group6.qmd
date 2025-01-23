@@ -7,17 +7,64 @@ format: html
 
 ```{r}
 suppressPackageStartupMessages({
-library(CellChat)
-library(patchwork)
+  library(CellChat)
+  library(patchwork)
+  library(dplyr)
+  library(Seurat)
 })
 options(stringsAsFactors = FALSE)
+future::plan("multisession", workers = 4)  # Enable parallel processing
 ```
 
-#### a. Create a CellChat object from our Seurat object and set *CellChatDB.human* as the ligand-receptor interaction database for the analysis.
+## Step 1: Subset seurat objects
+```{r}
+integrated.seu <- readRDS("data/scRNA/TTs.annotated.rds")
+
+```
 
 ```{r}
-#Create a CellChat object
-cellchat <- createCellChat(object = pbmc.MTB, meta = pbmc.MTB@meta.data, group.by = "cell_type_manual")
+primary <- subset(
+  integrated.seu, 
+  subset =  orig.ident %in% c("PT1", "PT2", "PT3")
+)
+
+recurrent <- subset(
+  integrated.seu, 
+  subset = orig.ident %in% c("RT1", "RT2", "RT3")
+)
+```
+
+```{r}
+# Normalize Data
+primary <- NormalizeData(primary)
+recurrent <- NormalizeData(recurrent)
+
+# Set Default Assay to RNA
+DefaultAssay(primary) <- "RNA"
+DefaultAssay(recurrent) <- "RNA"
+
+# Find Variable Features
+primary <- FindVariableFeatures(primary, selection.method = "vst", nfeatures = 2000)
+recurrent <- FindVariableFeatures(recurrent, selection.method = "vst", nfeatures = 2000)
+
+# Scale Data
+primary <- ScaleData(primary)
+recurrent <- ScaleData(recurrent)
+
+```
+
+## Step 2: Create Separate CellChat Objects for Primary and Recurrent
+
+
+```{r}
+# For Primary
+cellchat_primary <- createCellChat(object = primary, meta = primary@meta.data, group.by = "cell.annot")
+cellchat_primary@DB <- CellChatDB.human
+
+# For Recurrent
+cellchat_recurrent <- createCellChat(object = recurrent, meta = recurrent@meta.data, group.by = "cell.annot")
+cellchat_recurrent@DB <- CellChatDB.human
+
 ```
 
 ```{r}
@@ -25,71 +72,82 @@ CellChatDB <- CellChatDB.human
 showDatabaseCategory(CellChatDB)
 ```
 
-#### b. Subset the interaction-ligatand database to include only “Secreted Signaling” and set it as the database for cellchat.
+
+## Step 4: Preprocess  the expression data for cell-cell communication analysis
 
 ```{r}
-# Show the structure of the database
-dplyr::glimpse(CellChatDB$interaction)
+cellchat_primary <- subsetData(cellchat_primary)
+cellchat_primary <- identifyOverExpressedGenes(cellchat_primary)
+cellchat_primary <- identifyOverExpressedInteractions(cellchat_primary)
+cellchat_primary <- computeCommunProb(cellchat_primary)
+cellchat_primary <- filterCommunication(cellchat_primary, min.cells = 10)
+cellchat_primary <- computeCommunProbPathway(cellchat_primary)
+cellchat_primary <- aggregateNet(cellchat_primary)
 ```
 
 ```{r}
-# CellChatDB.use <- subsetDB(CellChatDB, search = "Secreted Signaling") # use Secreted Signaling
-# showDatabaseCategory(CellChatDB.use)
-# cellchat@DB <- CellChatDB.use
+cellchat_recurrent <- subsetData(cellchat_recurrent)
+cellchat_recurrent <- identifyOverExpressedGenes(cellchat_recurrent)
+cellchat_recurrent <- identifyOverExpressedInteractions(cellchat_recurrent)
+cellchat_recurrent <- computeCommunProb(cellchat_recurrent)
+cellchat_recurrent <- filterCommunication(cellchat_recurrent, min.cells = 10)
+cellchat_recurrent <- computeCommunProbPathway(cellchat_recurrent)
+cellchat_recurrent <- aggregateNet(cellchat_recurrent)
 ```
 
-#### c. Pre-process the expression data for cell-cell communication analysis
+
+# Step 5: Identify and Rank Top Signaling Pathways
 
 ```{r}
-# subset the expression data of signaling genes for saving computation cost
-cellchat <- subsetData(cellchat) # This step is necessary if using the whole database
-future::plan("multisession", workers = 4) # do parallel
-cellchat <- identifyOverExpressedGenes(cellchat)
-cellchat <- identifyOverExpressedInteractions(cellchat)
-```
+# Rank signaling pathways by communication strength
+primary_pathway_scores <- cellchat_primary@netP$score
+top_primary_pathways <- names(sort(rowMeans(primary_pathway_scores), decreasing = TRUE))[1:5]
+print("Top 5 Pathways for Primary:")
+print(top_primary_pathways)
 
-#### d. Infer the cell-cell communication network.
-
-```{r}
-cellchat <- computeCommunProb(cellchat)
-```
-
-```{r}
- # Filter out the cell-cell communication if there are only few number of cells in certain cell groups
-cellchat <- filterCommunication(cellchat, min.cells = 10)
-
-#Extract the inferred cellular communication network as a data frame
-df.net <- subsetCommunication(cellchat) #returns a data frame consisting of all the inferred cell-cell communications at the level of ligands/receptors. 
-
-#Infer the cell-cell communication at a signaling pathway level
-cellchat <- computeCommunProbPathway(cellchat)
-```
-
-#### e. Calculate the aggregated cell-cell communication network and do the visualization.
-
-```{r}
-#Calculate the aggregated cell-cell communication network
-cellchat <- aggregateNet(cellchat)
-groupSize <- as.numeric(table(cellchat@idents))
-par(mfrow = c(1,2), xpd=TRUE)
-netVisual_circle(cellchat@net$count, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Number of interactions")
-netVisual_circle(cellchat@net$weight, vertex.weight = groupSize, weight.scale = T, label.edge= F, title.name = "Interaction weights/strength")
-```
-
-#### f. Visualize TNF signaling pathway with `netVisual_aggregate` and `netVisual_heatmap`. See [Visualization of cell-cell communication at different levels](https://htmlpreview.github.io/?https://github.com/jinworks/CellChat/blob/master/tutorial/CellChat-vignette.html#visualize-each-signaling-pathway-using-hierarchy-plot-circle-plot-or-chord-diagram).
-
-```{r}
-pathways <- cellchat@netP$pathways
-
-pathways.show <- c("TNF") 
-
-# Circle plot
-par(mfrow=c(1,1))
-netVisual_aggregate(cellchat, signaling = pathways.show, layout = "circle")
 ```
 
 ```{r}
-# Heatmap
-par(mfrow=c(1,1))
-netVisual_heatmap(cellchat, signaling = pathways.show, color.heatmap = "Reds")
+# Rank signaling pathways by communication strength
+recurrent_pathway_scores <- cellchat_recurrent@netP$score
+top_recurrent_pathways <- names(sort(rowMeans(recurrent_pathway_scores), decreasing = TRUE))[1:5]
+print("Top 5 Pathways for Recurrent:")
+print(top_recurrent_pathways)
 ```
+
+## Step 6: Visualize Top Pathways
+
+```{r}
+# Circle plot for the top primary pathway
+par(mfrow = c(1, 1))
+netVisual_aggregate(cellchat_primary, signaling = top_primary_pathways[1], layout = "circle")
+
+# Circle plot for the top recurrent pathway
+par(mfrow = c(1, 1))
+netVisual_aggregate(cellchat_recurrent, signaling = top_recurrent_pathways[1], layout = "circle")
+```
+
+
+```{r}
+# Heatmap for the top primary pathway
+netVisual_heatmap(cellchat_primary, signaling = top_primary_pathways[1], color.heatmap = "Reds")
+
+# Heatmap for the top recurrent pathway
+netVisual_heatmap(cellchat_recurrent, signaling = top_recurrent_pathways[1], color.heatmap = "Blues")
+
+```
+
+## Step 7: Visualize a Specific Pathway 
+```{r}
+# Visualize the TNF pathway for primary
+netVisual_aggregate(cellchat_primary, signaling = "TNF", layout = "circle")
+netVisual_heatmap(cellchat_primary, signaling = "TNF", color.heatmap = "Reds")
+
+```
+
+```{r}
+# Visualize the TNF pathway for recurrent
+netVisual_aggregate(cellchat_recurrent, signaling = "TNF", layout = "circle")
+netVisual_heatmap(cellchat_recurrent, signaling = "TNF", color.heatmap = "Blues")
+```
+
