@@ -1,0 +1,441 @@
+---
+title: "DCTA_DGEA"
+format: html
+editor: visual
+---
+
+```{r}
+suppressPackageStartupMessages({
+library(DCATS)
+library(Seurat)
+library(SeuratData)
+library(SingleCellExperiment)
+library(clusterProfiler)
+library(dplyr)
+library(enrichplot)
+library(fgsea)
+library(ggplot2)
+library(ggrepel)
+library(tibble)
+library(tidyverse)
+})
+```
+
+```{r}
+
+NTs.annotated <- readRDS("data/scRNA/NTs.annotated.rds")
+TTs.annotated <- readRDS("data/scRNA/TTs.annotated.rds")
+merged.seu <- merge(TTs.annotated, y = NTs.annotated, add.cell.ids = c("TTs", "NTs"))
+```
+
+```{r}
+
+merged.seu$id <- merged.seu$orig.ident
+
+# Simplify labels for comparisons
+merged.seu$orig.ident[merged.seu$orig.ident %in% c('NT1', 'NT2')] <- 'NT'
+merged.seu$orig.ident[merged.seu$orig.ident %in% c('PT1', 'PT2', 'PT3')] <- 'PT'
+merged.seu$orig.ident[merged.seu$orig.ident %in% c('RT1', 'RT2', 'RT3')] <- 'RT'
+
+```
+
+```{r}
+
+# Convert to SingleCellExperiment object
+# sce <- as.SingleCellExperiment(merged.seu)
+
+```
+
+Create graph
+
+```{r}
+DefaultAssay(merged.seu) <- "RNA"
+merged.seu <- NormalizeData(merged.seu)
+merged.seu <- FindVariableFeatures(merged.seu)
+merged.seu <- ScaleData(merged.seu)
+merged.seu <- RunPCA(merged.seu)
+```
+
+```{r}
+merged.seu <- FindNeighbors(merged.seu, dims = 1:30)
+merged.seu <- FindClusters(merged.seu, resolution = 0.9)
+
+```
+
+```{r}
+# Estimate similarity matrix using the cell-type annotations
+knn_mat <- knn_simMat(merged.seu@graphs$RNA_snn, merged.seu$cell.annot)
+
+# # Create count matrix for abundance comparison
+# count_mat <- table(merged.seu$id, merged.seu$cell.annot)
+
+```
+
+```{r}
+PT_NT_data <- subset(merged.seu, id %in% c('PT1', 'PT2', 'PT3', "NT1", "NT2"))
+PT_RT_data <- subset(merged.seu, id %in% c('PT1', 'PT2', 'PT3', "RT1", "RT2", "RT3"))
+RT_NT_data <- subset(merged.seu, id %in% c('RT1', 'RT2', 'RT3', "NT1", "NT2"))
+```
+
+```{r}
+DefaultAssay(PT_NT_data) <- "RNA"
+PT_NT_data <- NormalizeData(PT_NT_data)
+PT_NT_data <- FindVariableFeatures(PT_NT_data)
+PT_NT_data <- ScaleData(PT_NT_data)
+PT_NT_data <- RunPCA(PT_NT_data)
+PT_NT_data <- FindNeighbors(PT_NT_data, dims = 1:30)
+PT_NT_data <- FindClusters(PT_NT_data, resolution = 0.9)
+# Estimate similarity matrix using the cell-type annotations
+knn_mat_PT_NT <- knn_simMat(PT_NT_data@graphs$RNA_snn, PT_NT_data$cell.annot)
+```
+
+```{r}
+DefaultAssay(PT_RT_data) <- "RNA"
+PT_RT_data <- NormalizeData(PT_RT_data)
+PT_RT_data <- FindVariableFeatures(PT_RT_data)
+PT_RT_data <- ScaleData(PT_RT_data)
+PT_RT_data <- RunPCA(PT_RT_data)
+PT_RT_data <- FindNeighbors(PT_RT_data, dims = 1:30)
+PT_RT_data <- FindClusters(PT_RT_data, resolution = 0.9)
+# Estimate similarity matrix using the cell-type annotations
+knn_mat_PT_RT <- knn_simMat(PT_RT_data@graphs$RNA_snn, PT_RT_data$cell.annot)
+```
+
+```{r}
+DefaultAssay(RT_NT_data) <- "RNA"
+RT_NT_data <- NormalizeData(RT_NT_data)
+RT_NT_data <- FindVariableFeatures(RT_NT_data)
+RT_NT_data <- ScaleData(RT_NT_data)
+RT_NT_data <- RunPCA(RT_NT_data)
+RT_NT_data <- FindNeighbors(RT_NT_data, dims = 1:30)
+RT_NT_data <- FindClusters(RT_NT_data, resolution = 0.9)
+# Estimate similarity matrix using the cell-type annotations
+knn_mat_RT_NT <- knn_simMat(RT_NT_data@graphs$RNA_snn, RT_NT_data$cell.annot)
+```
+
+```{r}
+
+
+# Create count matrices for each comparison
+count_mat_PT_vs_NT <- table(PT_NT_data$id, PT_NT_data$cell.annot)
+count_mat_RT_vs_NT <- table(RT_NT_data$id, RT_NT_data$cell.annot)
+count_mat_PT_vs_RT <- table(PT_RT_data$id, PT_RT_data$cell.annot)
+
+count_mat_PT_vs_NT_df <- as.data.frame(count_mat_PT_vs_NT)
+count_mat_PT_vs_NT_df <- count_mat_PT_vs_NT_df |> 
+  pivot_wider(names_from= Var2, values_from= Freq )
+
+count_mat_RT_vs_NT_df <- as.data.frame(count_mat_RT_vs_NT)
+count_mat_RT_vs_NT_df <- count_mat_RT_vs_NT_df |> 
+  pivot_wider(names_from= Var2, values_from= Freq )
+
+count_mat_PT_vs_RT_df <- as.data.frame(count_mat_PT_vs_RT)
+count_mat_PT_vs_RT_df <- count_mat_PT_vs_RT_df |> 
+  pivot_wider(names_from= Var2, values_from= Freq )
+
+
+# Define study designs for each comparison
+
+sim_design_PT_vs_NT <- data.frame(condition = rep(c(rep("NT", 2), rep("PT", 3)), 12))
+sim_design_RT_vs_NT <- data.frame(condition = rep(c(rep("NT", 2), rep("RT", 3)), 11))
+sim_design_PT_vs_RT <- data.frame(condition = rep(c(rep("PT", 3), rep("RT", 3)), 9))
+
+
+
+# sim_design_PT_vs_NT <- data.frame(condition = c(rep("NT", nrow(NT_data)), rep("PT", nrow(PT_data))))
+# sim_design_RT_vs_NT <- data.frame(condition = c(rep("NT", nrow(NT_data)), rep("RT", nrow(RT_data))))
+# sim_design_PT_vs_RT <- data.frame(condition = c(rep("PT", nrow(PT_data)), rep("RT", nrow(RT_data))))
+
+
+
+
+
+# Perform differential composition analysis for each comparison
+dcats_results_PT_vs_NT <- dcats_GLM(count_mat_PT_vs_NT, sim_design_PT_vs_NT, knn_mat_PT_NT)
+dcats_results_RT_vs_NT <- dcats_GLM(count_mat_RT_vs_NT, sim_design_RT_vs_NT, knn_mat_RT_NT)
+dcats_results_PT_vs_RT <- dcats_GLM(count_mat_PT_vs_RT, sim_design_PT_vs_RT, knn_mat_PT_RT)
+
+# View results
+print(dcats_results_PT_vs_NT)
+print(dcats_results_RT_vs_NT)
+print(dcats_results_PT_vs_RT)
+
+```
+
+```{r}
+# Assuming dcats_results_PT_vs_RT is your data frame with p-values and coefficients
+# Filter the cell types based on the p-value threshold
+significant_indices <- which(dcats_results_PT_vs_RT$fdr < 0.05/3)
+significant_celltypes <- rownames(dcats_results_PT_vs_RT$ceoffs)[significant_indices]
+significant_coeffs <- dcats_results_PT_vs_RT$ceoffs[significant_indices]
+
+# Create a data frame for plotting
+plot_data <- data.frame(
+  CellType = significant_celltypes,
+  Coefficient = significant_coeffs
+)
+
+# Load ggplot2 for plotting
+library(ggplot2)
+
+# Create the barplot
+ggplot(plot_data, aes(x = reorder(CellType, Coefficient), y = Coefficient)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip coordinates to have cell types on the y-axis
+  xlab("Cell Type") +
+  ylab("Coefficient") +
+  ggtitle("Significant Cell Types") +
+  theme_minimal()
+```
+
+```{r}
+# Assuming dcats_results_PT_vs_NT is your data frame with p-values and coefficients
+# Filter the cell types based on the p-value threshold
+significant_indices <- which(dcats_results_PT_vs_NT$fdr < 0.05/3)
+significant_celltypes <- rownames(dcats_results_PT_vs_NT$ceoffs)[significant_indices]
+significant_coeffs <- dcats_results_PT_vs_NT$ceoffs[significant_indices]
+
+# Create a data frame for plotting
+plot_data <- data.frame(
+  CellType = significant_celltypes,
+  Coefficient = significant_coeffs
+)
+
+
+# Create the barplot
+ggplot(plot_data, aes(x = reorder(CellType, Coefficient), y = Coefficient)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip coordinates to have cell types on the y-axis
+  xlab("Cell Type") +
+  ylab("Coefficient") +
+  ggtitle("Significant Cell Types") +
+  theme_minimal()
+```
+
+```{r}
+# Assuming dcats_results_PT_vs_NT is your data frame with p-values and coefficients
+# Filter the cell types based on the p-value threshold
+significant_indices <- which(dcats_results_RT_vs_NT$fdr < 0.05/3)
+significant_celltypes <- rownames(dcats_results_RT_vs_NT$ceoffs)[significant_indices]
+significant_coeffs <- dcats_results_RT_vs_NT$ceoffs[significant_indices]
+
+# Create a data frame for plotting
+plot_data <- data.frame(
+  CellType = significant_celltypes,
+  Coefficient = significant_coeffs
+)
+
+
+# Create the barplot
+ggplot(plot_data, aes(x = reorder(CellType, Coefficient), y = Coefficient)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip coordinates to have cell types on the y-axis
+  xlab("Cell Type") +
+  ylab("Coefficient") +
+  ggtitle("Significant Cell Types") +
+  theme_minimal()
+```
+
+```{r}
+# 
+# # Define study design for comparison groups
+# # Comparing Primary Tumor vs Normal Tissue
+# sim_design_PT_vs_NT <- data.frame(condition = c(rep("NT", sum(merged.seu$id %in% c('NT1', 'NT2'))),
+#                                                  rep("PT", sum(merged.seu$id %in% c('PT1', 'PT2', 'PT3')))))
+# 
+# # Perform differential composition analysis for PT vs NT
+# dcats_results_PT_vs_NT <- dcats_GLM(count_mat, sim_design_PT_vs_NT, knn_mat)
+# 
+# # Comparing Recurrent Tumor vs Normal Tissue
+# sim_design_RT_vs_NT <- data.frame(condition = c(rep("NT", sum(merged.seu$id %in% c('NT1', 'NT2'))),
+#                                                  rep("RT", sum(merged.seu$id %in% c('RT1', 'RT2', 'RT3')))))
+# 
+# dcats_results_RT_vs_NT <- dcats_GLM(count_mat, sim_design_RT_vs_NT, knn_mat)
+# 
+# # Comparing Primary Tumor vs Recurrent Tumor
+# sim_design_PT_vs_RT <- data.frame(condition = c(rep("PT", sum(merged.seu$id %in% c('PT1', 'PT2', 'PT3'))),
+#                                                  rep("RT", sum(merged.seu$id %in% c('RT1', 'RT2', 'RT3')))))
+# 
+# dcats_results_PT_vs_RT <- dcats_GLM(count_mat, sim_design_PT_vs_RT, knn_mat)
+
+
+
+```
+
+```{r}
+# View results for PT vs NT
+# print(dcats_results_PT_vs_NT)
+
+```
+
+```{r}
+# View results for RT vs NT
+# print(dcats_results_RT_vs_NT)
+
+
+```
+
+```{r}
+# View results for PT vs RT
+# print(dcats_results_PT_vs_RT)
+```
+
+## Differential Gene Expression Analysis:
+
+```{r}
+library(Seurat)
+library(DESeq2)
+library(dplyr)
+library(tibble)
+
+```
+
+```{r}
+# Aggregate counts to sample level
+counts <- AggregateExpression(integrated_rna, 
+                              group.by = c("cell_type_manual", "orig.ident"),
+                              assays = "RNA",
+                              return.seurat = FALSE)
+counts <- counts$RNA
+
+# Transpose and convert to data.frame
+counts.t <- t(counts)
+counts.t <- as.data.frame(counts.t)
+
+# Extract the sample group (e.g., PT, RT, NT) from row names
+splitRows <- gsub('_.*', '', rownames(counts.t))
+
+# Split data by cell type
+cts.split <- split.data.frame(counts.t, f = factor(splitRows))
+
+# Fix column names and transpose for further processing
+cts.split.modified <- lapply(cts.split, function(x) {
+    rownames(x) <- gsub('.*_(.*)', '\\1', rownames(x)) # Keep only the sample names
+    t(x)
+})
+
+# Extract count matrix for a specific cell type (e.g., CD14+ Monocytes)
+counts_monocytes <- cts.split.modified$`CD14+ Monocyte`
+
+# Create sample metadata
+colData <- data.frame(samples = colnames(counts_monocytes))
+
+# Assign condition labels
+colData <- colData %>%
+  dplyr::mutate(condition = ifelse(grepl('PT', samples), 'PT',
+                            ifelse(grepl('RT', samples), 'RT', 'NT'))) %>%
+  column_to_rownames(var = 'samples')
+```
+
+```{r}
+# Convert to DESeq2 dataset
+dds <- DESeqDataSetFromMatrix(countData = counts_monocytes,
+                              colData = colData,
+                              design = ~ condition)
+
+# Set NT as reference for comparisons
+dds$condition <- relevel(dds$condition, ref = "NT")
+
+# Run DESeq2
+dds <- DESeq(dds)
+
+# Check available comparisons
+resultsNames(dds)
+```
+
+RT vs PT
+
+```{r}
+res_RT_vs_PT <- results(dds, contrast = c("condition", "RT", "PT"))
+summary(res_RT_vs_PT)
+
+# Convert to tibble and sort by padj
+res_tbl_RT_vs_PT <- res_RT_vs_PT %>%
+  data.frame() %>%
+  rownames_to_column(var = "gene") %>%
+  as_tibble() %>%
+  arrange(padj)
+
+
+```
+
+RT vs NT
+
+```{r}
+res_RT_vs_NT <- results(dds, contrast = c("condition", "RT", "NT"))
+summary(res_RT_vs_NT)
+
+# Convert to tibble and sort by padj
+res_tbl_RT_vs_NT <- res_RT_vs_NT %>%
+  data.frame() %>%
+  rownames_to_column(var = "gene") %>%
+  as_tibble() %>%
+  arrange(padj)
+
+
+```
+
+PT vs NT
+
+```{r}
+res_PT_vs_NT <- results(dds, contrast = c("condition", "PT", "NT"))
+summary(res_PT_vs_NT)
+
+# Convert to tibble and sort by padj
+res_tbl_PT_vs_NT <- res_PT_vs_NT %>%
+  data.frame() %>%
+  rownames_to_column(var = "gene") %>%
+  as_tibble() %>%
+  arrange(padj)
+
+
+```
+
+Identify top differentially expressed genes
+
+```{r}
+# Set adjusted p-value cutoff
+padj_cutoff <- 0.005
+
+# Get significant results for RT vs PT
+sig_res_RT_vs_PT <- dplyr::filter(res_tbl_RT_vs_PT, padj < padj_cutoff) %>%
+  dplyr::arrange(padj)
+
+# Get significant results for RT vs NT
+sig_res_RT_vs_NT <- dplyr::filter(res_tbl_RT_vs_NT, padj < padj_cutoff) %>%
+  dplyr::arrange(padj)
+
+# Get significant results for PT vs NT
+sig_res_PT_vs_NT <- dplyr::filter(res_tbl_PT_vs_NT, padj < padj_cutoff) %>%
+  dplyr::arrange(padj)
+
+# Identify top 20 differentially expressed genes based on p-value for RT vs PT
+top20_RT_vs_PT <- sig_res_RT_vs_PT %>%
+  dplyr::arrange(padj) %>%
+  dplyr::pull(gene) %>%
+  head(n=20)
+
+# Identify top 20 differentially expressed genes based on p-value for RT vs NT
+top20_RT_vs_NT <- sig_res_RT_vs_NT %>%
+  dplyr::arrange(padj) %>%
+  dplyr::pull(gene) %>%
+  head(n=20)
+
+
+# Identify top 20 differentially expressed genes based on p-value for PT vs NT
+top20_PT_vs_NT <- sig_res_PT_vs_NT %>%
+  dplyr::arrange(padj) %>%
+  dplyr::pull(gene) %>%
+  head(n=20)
+
+
+# Print the top 20 differentially expressed genes
+print("RT vs PT")
+print(top20_RT_vs_PT)
+
+print("RT vs NT")
+print(top20_RT_vs_NT)
+
+print("NT vs PT")
+print(top20_PT_vs_NT)
+```
