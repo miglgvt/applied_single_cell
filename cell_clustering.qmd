@@ -1,0 +1,261 @@
+---
+title: "separate_cell_clustering"
+format: html
+editor: visual
+---
+
+## Manual cell type annotation
+
+```{r}
+library(Seurat)
+library(SeuratObject)
+library(tidyverse)
+library(scuttle)
+library(scDblFinder)
+library(ggplot2)
+#library(writexl)
+#library(SeuratDisk)
+library(celldex)
+library(sctransform)
+library(readxl)
+```
+
+```{r}
+# Load Seurat objects from .rds files
+#integratedTT_NT_12 <- readRDS("~/projects/single_cell_project/data/scRNA/integratedTT_NT_12.rds")
+
+integratedTTs <- readRDS("~/projects/single_cell_project/data/scRNA/TTs.combined_features.sct")
+```
+
+```{r}
+integratedTTs <- FindClusters(integratedTTs, resolution = 0.9)
+
+```
+
+```{r}
+# DimPlot(integratedTTs, reduction = "umap", group.by = c("orig.ident", "seurat_clusters"))
+
+DimPlot(integratedTTs, group.by = c("orig.ident", "seurat_clusters"))
+
+```
+
+```{r}
+DimPlot(integratedTTs, group.by = "seurat_clusters", 
+        label = TRUE, repel = TRUE, label.size = 5)
+```
+
+```{r}
+# integratedTT_NT_12 <- SCTransform(integratedTT_NT_12, method = "glmGamPoi", vars.to.regress = "percent.mt",  verbose = FALSE)
+```
+
+```{r}
+integratedTTs <- PrepSCTFindMarkers(integratedTTs)
+# Find markers for every cluster compared to all remaining cells, report only the positive ones
+all_markers <- FindAllMarkers(object = integratedTTs, 
+                              assay='SCT',
+                              only.pos = TRUE,
+                              logfc.threshold = 0.25)
+
+top_markers <- all_markers %>%
+  group_by(cluster) %>%
+  top_n(n = 20,
+        wt = avg_log2FC)
+
+```
+
+```{r}
+top_5_markers <- all_markers %>%
+  group_by(cluster) %>%
+  top_n(n = 5,
+        wt = avg_log2FC)
+
+```
+
+```{r}
+write_csv(top_markers, "data/scRNA/Top_TT_Markers_0.9.csv") 
+
+```
+
+```{r}
+# # Define the top marker genes for each cell type
+# cell_type_markers <- c("KRT15", "KRT16", "KRT17", "ESRP1", "ELF3", "RARRES1",
+#                    "TOP2A", "CDK1", "MKI67", "CENPF", "COL4A6", "COL4A5",
+#                    "S100A10", "ID1", "CXCL1", "CXCL8", "CD24", 
+#                    "BRCA1", "ESR1", "BCL2", "PGR", "CCNB1", "AURKA", 
+#                    "BAG1", "KRT8", "BRIP1", "TUBB", "TUBA1B", "KRT17", 
+#                    "CAV1", "IFI27", "IGFBP4", "TFF1", "FTL", "FGF13", 
+#                    "SLC3A2", "MUCL1", "KRT19", "XBP1", "NEAT1", "PCNA", 
+#                    "UBE2T", "AGR2", "PDIA4", "KRT80", "CD83", "NFKBIA", "NFKBIZ")
+# 
+# # Function to check if marker genes are in the top_markers variable and retrieve clusters
+# check_genes_with_clusters <- function(marker_list, top_markers) {
+#   # Convert gene column to character to avoid factor issues
+#   top_markers$gene <- as.character(top_markers$gene)
+#   
+#   # Find matching genes and their clusters
+#   present_genes <- marker_list[marker_list %in% top_markers$gene]
+#   absent_genes <- marker_list[!marker_list %in% top_markers$gene]
+#   
+#   # Get clusters for present genes
+#   present_clusters <- top_markers[top_markers$gene %in% present_genes, c("gene", "cluster")]
+#   
+#   return(list("Present_Genes" = present_clusters, "Absent_Genes" = absent_genes))
+# }
+# 
+# # Usage example (assuming 'top_markers' is your data frame with columns 'gene' and 'cluster')
+# results <- check_genes_with_clusters(cell_type_markers, top_markers)
+# 
+# # View results
+# print("Genes Found and Their Clusters:")
+# print(results$Present_Genes)
+
+```
+
+```{r}
+# # plot stackviolin plot
+# markers <- c("KRT15","KRT16","KRT17", # Basal
+#                 "ESRP1","ELF3","RARRES1",       # Luminal
+#                 "TOP2A", "CDK1","MKI67","CENPF", #Luminal Progenitor
+#                 "COL4A6","COL4A5",
+#                 "S100A10", "ID1",
+#                 "CXCL1", "CXCL8", 
+#                 "CD24")
+# 
+# VlnPlot(integratedTTs, features = markers,
+#         stack=T,pt.size=0,
+#         flip = T,
+#         add.noise = T) +
+#   theme(axis.text.y = element_blank(), 
+#         axis.ticks.y = element_blank(),
+#         axis.title = element_blank(),
+#         axis.text.x = element_text(colour = 'black',size = 14),
+#         legend.position = 'none')
+
+```
+
+```{r}
+# Add cell type annotation
+integratedTTs <- RenameIdents(object = integratedTTs,
+                        "0"  = "Breast cancer cells", 
+                        "1"  = "Myeloid cells",
+                        "2"  = "Breast cancer cells", 
+                        "3"  = "Myeloid cells",
+                        "4"  = "Breast cancer cells", 
+                        "5"  = "Stromal cells",
+                        "6"  = "Stromal cells",
+                        "7"  = "Luminal cells",
+                        "8"  = "Breast cancer cells",
+                        "9"  = "Adipocytes-like",
+                        "10" = "Breast cancer cells",
+                        "11" = "Basal cells",
+                        "12" = "Stromal cells",
+                        "13" = "Neutrophils-like",
+                        "14" = "Luminal cells",
+                        "15" = "Luminal cells",
+                        "16" = "Myeloid cells",
+                        "17" = "Stromal cells",
+                        "18" = "NK cells",
+                        "19" = "Stromal cells",
+                        "20" = "Fibroblast-like",
+                        "21" = "Stromal cells")
+
+```
+
+```{r}
+integratedTTs$cell.annot <- Idents(integratedTTs)
+DimPlot(integratedTTs, repel = TRUE, group.by = "cell.annot")
+```
+
+```{r}
+saveRDS(integratedTTs, "~/projects/single_cell_project/data/scRNA/TTs.annotated.rds")
+```
+
+Merging NT1 and NT2 (After preprocessing), I saved the RDS file of seurat list manually
+
+```{r}
+NTs.seu <- merge(seurat_list_qc$NT1, y = c(seurat_list_qc$NT2), 
+                 add.cell.ids = c("NT1", "NT2"), 
+                 project = "scRNA_NTs")
+
+saveRDS(NTs.seu, "data/scRNA/NTs.unannotated.rds")
+# Run the standard workflow for visualization and clustering
+NTs.seu <- FindVariableFeatures(NTs.seu)
+
+NTs.seu <- SCTransform(NTs.seu, method = "glmGamPoi", vars.to.regress = "percent.mt",
+                           verbose = FALSE)
+NTs.seu <- RunPCA(NTs.seu, npcs = 30, verbose = FALSE)
+NTs.seu <- RunUMAP(NTs.seu, reduction = "pca", dims = 1:30)
+NTs.seu <- FindNeighbors(NTs.seu, reduction = "pca", dims = 1:30)
+NTs.seu <- FindClusters(NTs.seu, resolution = 0.9, algorithm = 2)
+
+# check the cluster location
+DimPlot(NTs.seu, group.by = c("orig.ident", "seurat_clusters"))
+DimPlot(NTs.seu, group.by = "seurat_clusters", 
+        label = TRUE, repel = TRUE, label.size = 5)
+
+
+```
+
+```{r}
+# Find markers
+NTs.seu <- PrepSCTFindMarkers(NTs.seu)
+# Find markers for every cluster compared to all remaining cells, report only the positive ones
+NTs_markers <- FindAllMarkers(object = NTs.seu, 
+                              assay='SCT',
+                              only.pos = TRUE,
+                              logfc.threshold = 0.25)
+
+NTs_top <- NTs_markers %>%
+  group_by(cluster) %>%
+  top_n(n = 20,
+        wt = avg_log2FC)
+```
+
+```{r}
+# # plot stackviolin plot
+# NTs.marker <- c("KRT15","KRT16","KRT17", # Basal
+#                 "ESRP1","ELF3","RARRES1",       # Luminal
+#                 "TOP2A", "CDK1","MKI67","CENPF", #Luminal Progenitor
+#                 "COL4A6","COL4A5",
+#                 "S100A10", "ID1",
+#                 "CXCL1", "CXCL8", 
+#                 "CD24")
+# 
+# VlnPlot(NTs.seu, features = NTs.marker,
+#         stack=T,pt.size=0,
+#         flip = T,
+#         add.noise = T) +
+#   theme(axis.text.y = element_blank(), 
+#         axis.ticks.y = element_blank(),
+#         axis.title = element_blank(),
+#         axis.text.x = element_text(colour = 'black',size = 14),
+#         legend.position = 'none')
+
+# add cell type annotation
+
+NTs.seu <- RenameIdents(object = NTs.seu,
+                        "0"  = "Basal cells", 
+                        "1"  = "Fibroblasts",
+                        "2"  = "Luminal cells", 
+                        "3"  = "Luminal cells",
+                        "4"  = "Luminal progenitor",
+                        "5"  = "Myeloid cells",
+                        "6"  = "Luminal progenitor",
+                        "7"  = "Basal cells",
+                        "8"  = "Endothelial cells",
+                        "9"  = "Adipocytes-like",
+                        "10" = "Luminal cells",
+                        "11" = "Endothelial cells")
+
+NTs.seu$cell.annot <- Idents(NTs.seu)
+DimPlot(NTs.seu, repel = TRUE, group.by = "cell.annot")
+```
+
+```{r}
+write_csv(NTs_markers, "data/scRNA/Top_NT_Markers_0.9.csv") 
+
+```
+
+```{r}
+saveRDS(NTs.seu, "data/scRNA/NTs.annotated.rds")
+```
