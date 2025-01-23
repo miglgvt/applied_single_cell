@@ -373,7 +373,7 @@ p5 <- plot_differential_expression(
   models = sce_primary
 )
 
-p6 <- p5 + ggtitle("Primary")
+p6 <- p5 + ggtitle("Primary (MT-CO1)")
 
 # Save the combined plot
 ggsave(
@@ -396,11 +396,11 @@ p7 <- plot_differential_expression(
 )
 
 
-p8 <- p7 + ggtitle("Primary")
+p8 <- p7 + ggtitle("Recurrent (HSP90B1)")
 
 # Save the combined plot
 ggsave(
-  filename = "results/trajectory_diff_expression_primary.png", # File name
+  filename = "results/trajectory_diff_expression_recurrent.png", # File name
   plot = p8,          # The plot object to save
   width = 20,                    # Width of the image in inches
   height = 10,                    # Height of the image in inches
