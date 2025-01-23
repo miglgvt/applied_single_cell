@@ -1,0 +1,578 @@
+---
+title: "trajectory-Group6"
+format: html
+---
+
+```{r}
+library(Seurat)
+library(slingshot)
+library(SingleCellExperiment)
+library(ggplot2)
+library(tidyverse)
+library(tradeSeq)
+library(BiocParallel)
+```
+
+```{r}
+integrated.seu <- readRDS("data/scRNA/TTs.annotated.rds")
+```
+
+```{r}
+ View(integrated.seu)
+```
+
+
+## Load data
+
+```{r}
+DimPlot(integrated.seu, label = TRUE, reduction = "umap", group.by = "cell.annot")
+```
+```{r}
+unique(integrated.seu$cell.annot) 
+```
+
+
+```{r}
+primary <- subset(
+  integrated.seu, 
+  subset = cell.annot == "Breast cancer cells" & orig.ident %in% c("PT1", "PT2", "PT3")
+)
+
+recurrent <- subset(
+  integrated.seu, 
+  subset = cell.annot == "Breast cancer cells" & orig.ident %in% c("RT1", "RT2", "RT3")
+)
+```
+
+```{r}
+# Remove reductions from primary
+primary@reductions <- list()
+
+# Remove reductions from recurrent
+recurrent@reductions <- list()
+```
+
+```{r}
+# Primary
+primary <- FindVariableFeatures(primary)
+primary <- ScaleData(primary)
+primary <- RunPCA(primary)
+
+# Recurrent
+recurrent <- FindVariableFeatures(recurrent)
+recurrent <- ScaleData(recurrent)
+recurrent <- RunPCA(recurrent)
+```
+
+```{r}
+# Primary Elbow Plot
+ElbowPlot(primary)
+
+# Recurrent Elbow Plot
+ElbowPlot(recurrent)
+
+```
+```{r}
+# Primary
+primary <- FindNeighbors(primary, dims = 1:12)
+primary <- FindClusters(primary, resolution = c(0.3, 0.5, 0.7))
+
+# Recurrent
+recurrent <- FindNeighbors(recurrent, dims = 1:12)
+recurrent <- FindClusters(recurrent, resolution = c(0.3, 0.5, 0.7))
+
+```
+
+```{r}
+# Primary
+primary <- RunUMAP(primary, dims = 1:12)
+
+# Recurrent
+recurrent <- RunUMAP(recurrent, dims = 1:12)
+```
+
+```{r}
+# Primary
+DimPlot(primary, label = TRUE, reduction = "umap", group.by = "integrated_snn_res.0.7")
+DimPlot(primary, label = TRUE, reduction = "umap", group.by = "integrated_snn_res.0.5")
+DimPlot(primary, label = TRUE, reduction = "umap", group.by = "integrated_snn_res.0.3")
+DimPlot(primary, label = TRUE, reduction = "umap", group.by = "orig.ident")
+
+```
+```{r}
+# Recurrent
+DimPlot(recurrent, label = TRUE, reduction = "umap", group.by = "integrated_snn_res.0.7")
+DimPlot(recurrent, label = TRUE, reduction = "umap", group.by = "integrated_snn_res.0.5")
+DimPlot(recurrent, label = TRUE, reduction = "umap", group.by = "integrated_snn_res.0.3")
+DimPlot(recurrent, label = TRUE, reduction = "umap", group.by = "orig.ident")
+```
+```{r}
+library(clustree)
+
+# For primary
+keep_resolutions <- c("integrated_snn_res.0.3", "integrated_snn_res.0.5", "integrated_snn_res.0.7")
+primary@meta.data <- primary@meta.data[, c(keep_resolutions, setdiff(colnames(primary@meta.data), grep("integrated_snn_res", colnames(primary@meta.data), value = TRUE)))]
+
+# For recurrent
+recurrent@meta.data <- recurrent@meta.data[, c(keep_resolutions, setdiff(colnames(recurrent@meta.data), grep("integrated_snn_res", colnames(recurrent@meta.data), value = TRUE)))]
+```
+
+```{r}
+clustree(primary, prefix = "integrated_snn_res.")
+```
+
+```{r}
+clustree(recurrent, prefix = "integrated_snn_res.")
+```
+
+
+# Vignette
+
+```{r}
+pal <- c(RColorBrewer::brewer.pal(9, "Set1"), RColorBrewer::brewer.pal(8, "Set2"))
+```
+
+```{r}
+# Primary
+dimred <- primary@reductions$umap@cell.embeddings
+clustering <- primary$integrated_snn_res.0.5
+var_features <- VariableFeatures(primary)
+counts <- primary@assays$RNA@counts[var_features, ]
+
+# Recurrent
+dimred_recurrent <- recurrent@reductions$umap@cell.embeddings
+clustering_recurrent <- recurrent$integrated_snn_res.0.3
+var_features_recurrent <- VariableFeatures(recurrent)
+counts_recurrent <- recurrent@assays$RNA@counts[var_features_recurrent, ]
+
+```
+
+```{r}
+# # Extract the count matrix from the RNA assay
+# counts_matrix <- GetAssayData(integrated.seu, assay = "RNA", layer = "counts")
+# # Assign rownames and colnames to the sparse matrix
+# rownames(counts_matrix) <- rownames(integrated.seu@assays$RNA)
+# colnames(counts_matrix) <- colnames(integrated.seu)
+```
+
+
+```{r}
+# Primary Lineages
+lineages_primary <- getLineages(data = dimred, clusterLabels = clustering)
+lineages_primary
+
+# Recurrent Lineages
+lineages_recurrent <- getLineages(data = dimred_recurrent, clusterLabels = clustering_recurrent)
+lineages_recurrent
+
+```
+
+```{r}
+# Primary
+par(mfrow = c(1, 2))
+plot(dimred[, 1:2], col = pal[clustering], cex = 0.7, pch = 16)
+for (i in levels(clustering)) {
+  text(mean(dimred[clustering == i, 1]), mean(dimred[clustering == i, 2]), labels = i, font = 2)
+}
+plot(dimred[, 1:2], col = pal[clustering], cex = 0.5, pch = 16)
+lines(SlingshotDataSet(lineages_primary), lwd = 2, type = "lineages", col = "black")
+
+```
+```{r}
+# Recurrent
+par(mfrow = c(1, 2))
+plot(dimred_recurrent[, 1:2], col = pal[clustering_recurrent], cex = 0.7, pch = 16)
+for (i in levels(clustering_recurrent)) {
+  text(mean(dimred_recurrent[clustering_recurrent == i, 1]), mean(dimred_recurrent[clustering_recurrent == i, 2]), labels = i, font = 2)
+}
+plot(dimred_recurrent[, 1:2], col = pal[clustering_recurrent], cex = 0.5, pch = 16)
+lines(SlingshotDataSet(lineages_recurrent), lwd = 2, type = "lineages", col = "black")
+
+```
+
+```{r}
+# Primary
+curves_primary <- getCurves(SlingshotDataSet(lineages_primary), approx_points = 500, thresh = 0.01, stretch = 0.8, allow.breaks = TRUE, shrink = 0.99)
+curves_primary
+
+# Recurrent
+curves_recurrent <- getCurves(SlingshotDataSet(lineages_recurrent), approx_points = 500, thresh = 0.01, stretch = 0.8, allow.breaks = TRUE, shrink = 0.99)
+curves_recurrent
+
+```
+
+
+```{r}
+# Primary
+bpparam <- MulticoreParam(workers = 6)
+
+set.seed(42)
+
+sce_primary <- fitGAM(counts = counts, sds = curves_primary, BPPARAM = bpparam)
+```
+
+```{r}
+# Recurrent
+bpparam <- MulticoreParam(workers = 6)
+set.seed(5)
+sce_recurrent <- fitGAM(counts = counts_recurrent, sds = curves_recurrent,  BPPARAM = bpparam)
+```
+
+
+```{r}
+# Primary
+plotGeneCount(curves_primary, counts, clusters = clustering, models = sce_primary)
+
+# Recurrent
+plotGeneCount(curves_recurrent, counts_recurrent, clusters = clustering_recurrent, models = sce_recurrent)
+
+```
+
+```{r}
+p1 <- plotGeneCount(curves_primary, counts, clusters = clustering, models = sce_primary)
+p2 <- plotGeneCount(curves_recurrent, counts_recurrent, clusters = clustering_recurrent, models = sce_recurrent)
+
+# Save the combined plot
+ggsave(
+  filename = "results/trajectory_curves_primary.png", # File name
+  plot = p1,          # The plot object to save
+  width = 10,                    # Width of the image in inches
+  height = 8,                    # Height of the image in inches
+  dpi = 300                      # Resolution in dots per inch
+)
+
+# Save the combined plot
+ggsave(
+  filename = "results/trajectory_curves_recurrent.png", # File name
+  plot = p2,          # The plot object to save
+  width = 10,                    # Width of the image in inches
+  height = 8,                    # Height of the image in inches
+  dpi = 300                      # Resolution in dots per inch
+)
+
+combined_plot <- (p1 + ggtitle("Primary")) | (p2 + ggtitle("Recurrent"))
+
+# Save the combined plot
+ggsave(
+  filename = "results/rajectory_curves_both.png", # File name
+  plot = combined_plot,          # The plot object to save
+  width = 20,                    # Width of the image in inches
+  height = 10,                    # Height of the image in inches
+  dpi = 300                      # Resolution in dots per inch
+)
+```
+
+
+## Pseudotime gradients
+
+```{r}
+# Extract pseudotime for primary
+primary_pseudotime <- slingPseudotime(curves_primary)
+
+# Extract pseudotime for recurrent
+recurrent_pseudotime <- slingPseudotime(curves_recurrent)
+
+```
+
+```{r}
+# Add pseudotime to seurat
+primary$Pseudotime <- rowMeans(primary_pseudotime, na.rm = TRUE)
+recurrent$Pseudotime <- rowMeans(recurrent_pseudotime, na.rm = TRUE)
+
+primary@meta.data$Pseudotime <- primary$Pseudotime
+recurrent@meta.data$Pseudotime <- recurrent$Pseudotime
+```
+
+
+```{r}
+p3 <- FeaturePlot(primary, features = "Pseudotime", reduction = "umap") +
+  scale_color_viridis_c(option = "plasma") +
+  ggtitle("Primary: Pseudotime Gradient")
+
+```
+
+
+```{r}
+p4 <- FeaturePlot(recurrent, features = "Pseudotime", reduction = "umap") +
+  scale_color_viridis_c(option = "plasma") +
+  ggtitle("Recurrent: Pseudotime Gradient")
+
+```
+
+```{r}
+combined_plot_2 <- (p3 + ggtitle("Primary")) | (p4 + ggtitle("Recurrent"))
+
+# Save the combined plot
+ggsave(
+  filename = "results/trajectory_pseudotime_both.png", # File name
+  plot = combined_plot,          # The plot object to save
+  width = 20,                    # Width of the image in inches
+  height = 10,                    # Height of the image in inches
+  dpi = 300                      # Resolution in dots per inch
+)
+```
+
+
+## Diff end test
+
+```{r}
+# Test for differential expression at the endpoints of lineages
+different_end_association_primary <- diffEndTest(sce_primary)
+
+# Add gene IDs to the results
+different_end_association_primary$feature_id <- rownames(different_end_association_primary)
+
+# Identify the top DEG with p-value < 0.05
+feature_id_primary <- different_end_association_primary %>%
+  filter(pvalue < 0.05) %>%
+  arrange(desc(waldStat)) %>%
+  dplyr::slice(1) %>%
+  pull(feature_id)
+
+# Print the top feature for primary
+print(feature_id_primary)
+
+```
+
+```{r}
+# Test for differential expression at the endpoints of lineages
+different_end_association_recurrent <- diffEndTest(sce_recurrent)
+
+# Add gene IDs to the results
+different_end_association_recurrent$feature_id <- rownames(different_end_association_recurrent)
+
+# Identify the top DEG with p-value < 0.05
+feature_id_recurrent <- different_end_association_recurrent %>%
+  filter(pvalue < 0.05) %>%
+  arrange(desc(waldStat)) %>%
+  dplyr::slice(1) %>%
+  pull(feature_id)
+
+# Print the top feature for recurrent
+print(feature_id_recurrent)
+
+```
+
+```{r}
+# Helper function for visualizing a gene's differential expression
+plot_differential_expression <- function(feature_id, curves, counts, clustering, models) {
+  patchwork::wrap_plots(
+    plotGeneCount(curves, counts, clusters = clustering, models = models, gene = feature_id) + theme(legend.position = "none"),
+    plotSmoothers(models, counts, gene = feature_id)
+  )
+}
+```
+
+```{r}
+# Visualize the top DEG for primary
+p5 <- plot_differential_expression(
+  feature_id_primary,
+  curves = curves_primary,
+  counts = counts,
+  clustering = clustering,
+  models = sce_primary
+)
+
+p6 <- p5 + ggtitle("Primary (MT-CO1)")
+
+# Save the combined plot
+ggsave(
+  filename = "results/trajectory_diff_expression_primary.png", # File name
+  plot = p6,          # The plot object to save
+  width = 20,                    # Width of the image in inches
+  height = 10,                    # Height of the image in inches
+  dpi = 300                      # Resolution in dots per inch
+)
+```
+
+```{r}
+# Visualize the top DEG for recurrent
+p7 <- plot_differential_expression(
+  feature_id_recurrent,
+  curves = curves_recurrent,
+  counts = counts_recurrent,
+  clustering = clustering_recurrent,
+  models = sce_recurrent
+)
+
+
+p8 <- p7 + ggtitle("Recurrent (HSP90B1)")
+
+# Save the combined plot
+ggsave(
+  filename = "results/trajectory_diff_expression_recurrent.png", # File name
+  plot = p8,          # The plot object to save
+  width = 20,                    # Width of the image in inches
+  height = 10,                    # Height of the image in inches
+  dpi = 300                      # Resolution in dots per inch
+)
+```
+
+
+# Cancer together
+
+```{r}
+cancer@assays$RNA@scale.data # Slots in the RNA assay
+cancer@reductions <- list()
+```
+
+```{r}
+cancer <- FindVariableFeatures(cancer)
+cancer <- ScaleData(cancer)
+cancer <- RunPCA(cancer)
+```
+
+```{r}
+ElbowPlot(cancer)
+```
+```{r}
+cancer <- FindNeighbors(cancer, dims = 1:20)
+```
+
+```{r}
+cancer <- FindClusters(cancer, resolution = c(0.3, 0.5, 0.7))
+cancer <- RunUMAP(cancer, dims = 1:12)
+```
+
+```{r}
+# check the cluster location
+DimPlot(cancer, label=TRUE, reduction="umap",  group.by = "integrated_snn_res.0.7")
+# check the cluster location
+DimPlot(cancer, label=TRUE, reduction="umap",  group.by = "integrated_snn_res.0.5")
+# check the cluster location
+DimPlot(cancer, label=TRUE, reduction="umap",  group.by = "integrated_snn_res.0.3")
+```
+
+```{r}
+DimPlot(cancer, label=TRUE, reduction="umap",  group.by = "orig.ident")
+```
+
+
+## Vignette
+
+```{r}
+pal <- c(RColorBrewer::brewer.pal(9, "Set1"), RColorBrewer::brewer.pal(8, "Set2"))
+```
+
+```{r}
+dimred <- cancer@reductions$umap@cell.embeddings
+clustering <- cancer$integrated_snn_res.0.3
+var_features <- VariableFeatures(cancer)
+```
+
+```{r}
+# # Extract the count matrix from the RNA assay
+# counts_matrix <- GetAssayData(integrated.seu, assay = "RNA", layer = "counts")
+# # Assign rownames and colnames to the sparse matrix
+# rownames(counts_matrix) <- rownames(integrated.seu@assays$RNA)
+# colnames(counts_matrix) <- colnames(integrated.seu)
+```
+
+```{r}
+counts <- cancer@assays$RNA@counts[var_features, ]
+```
+
+```{r}
+lineages <- getLineages(data = dimred, clusterLabels = clustering)
+lineages
+```
+
+```{r}
+# Plot the lineages
+par(mfrow = c(1, 2))
+plot(dimred[, 1:2], col = pal[clustering], cex = 0.7, pch = 16)
+for (i in levels(clustering)) {
+    text(mean(dimred[clustering == i, 1]), mean(dimred[clustering == i, 2]), labels = i, font = 2)
+}
+plot(dimred[, 1:2], col = pal[clustering], cex = 0.5, pch = 16)
+lines(SlingshotDataSet(lineages), lwd=2, type = 'lineages', col = c("black"))
+```
+
+```{r}
+curves <- getCurves(SlingshotDataSet(lineages), approx_points = 500, thresh = 0.01, stretch = 0.8, allow.breaks = TRUE, shrink = 0.99)
+curves
+```
+
+```{r}
+# Register a parallel backend with multicore processing
+bpparam <- MulticoreParam(workers = 6) 
+
+set.seed(42)
+sce <- fitGAM(counts = counts, sds = curves, BPPARAM = bpparam)
+```
+
+```{r}
+plotGeneCount(curves, counts, clusters = clustering, models = sce)
+
+p1 <- plotGeneCount(curves, counts, clusters = clustering, models = sce)
+
+# Save the combined plot
+ggsave(
+  filename = "results/trajectory_curves_draft.png", # File name
+  plot = p1,          # The plot object to save
+  width = 10,                    # Width of the image in inches
+  height = 8,                    # Height of the image in inches
+  dpi = 300                      # Resolution in dots per inch
+)
+```
+
+
+# Second approach
+
+
+```{r}
+sce <- as.SingleCellExperiment(integrated.seu) 
+```
+
+```{r}
+sce <- slingshot(
+  sce,
+  clusterLabels = sce$seurat_clusters,  # Use cluster labels from Seurat
+  reducedDim = "UMAP"                   # Use UMAP embeddings for trajectory inference
+)
+```
+
+```{r}
+umap <- reducedDims(sce)$UMAP
+lineages <- slingCurves(sce)
+```
+
+```{r}
+# Plot UMAP with Slingshot lineages
+plot(
+  umap, col = sce$seurat_clusters, pch = 16, asp = 1,
+  main = "Slingshot Trajectory on UMAP"
+)
+for (i in seq_along(lineages)) {
+  lines(lineages[[i]], lwd = 2, col = "black")
+}
+
+```
+
+```{r}
+# Extract pseudotime values
+pseudotime <- slingPseudotime(sce)
+head(pseudotime)
+```
+
+```{r}
+colnames(integrated.seu@meta.data)
+
+```
+
+```{r}
+# Add pseudotime values back to Seurat object for downstream analysis
+integrated.seu$Pseudotime <- pseudotime[, 1]  # Use the first lineage pseudotime
+
+seu_filtered <- subset(integrated.seu, subset = !is.na(Pseudotime))
+
+```
+
+```{r}
+# Visualize pseudotime using FeaturePlot
+FeaturePlot(integrated.seu, features = "Pseudotime", reduction = "umap") +
+  scale_color_viridis_c() +
+  ggtitle("Pseudotime on UMAP")
+
+```
+

@@ -1,0 +1,180 @@
+---
+title: "grn-Group6"
+format: html
+---
+
+```{r}
+suppressMessages(library(ArchR))
+suppressMessages(library(Seurat))
+suppressMessages(library(Signac))
+suppressMessages(library(scMEGA))
+suppressMessages(library(harmony))
+suppressMessages(library(Nebulosa))
+suppressMessages(library(ggplot2))
+suppressMessages(library(dplyr))
+suppressMessages(library(JASPAR2020))
+suppressMessages(library(TFBSTools))
+suppressMessages(library(igraph))
+suppressMessages(library(ggraph))
+suppressMessages(library(BSgenome.Hsapiens.UCSC.hg38))
+
+options(future.globals.maxSize = 1e9)
+```
+
+
+```{r}
+TTs.RNA <- ReadRDS('/data/scRNA/TTs.combined.rds')
+TTs.ATAC <- ReadRDS('/data/scATAC/integration/TTs.atac.integrated.rds')
+
+```
+
+
+```{r}
+# Convert assays to Assay5 format (if not already)
+TTs.RNA[["RNA"]] <- as(TTs.RNA[["RNA"]], "Assay5")
+TTs.ATAC[["ATAC"]] <- as(TTs.ATAC[["ATAC"]], "Assay5")
+```
+
+
+```{r}
+# Assume a gene activity matrix is available
+gene.activity <- GetAssayData(TTs.ATAC, assay = "ATAC", layer = "data")  # Replace with your actual matrix if needed
+
+# Co-embed snRNA-seq and snATAC-seq data
+TTs.coembed <- CoembedData(
+  TTs.RNA,
+  TTs.ATAC, 
+  gene.activity, 
+  weight.reduction = "harmony", 
+  verbose = TRUE
+)
+
+# Perform Harmony-based batch correction
+TTs.coembed <- RunHarmony(
+  TTs.coembed, 
+  group.by.vars = "",  # Replace "patient" with your metadata column
+  reduction.use = "rpca", 
+  dims.use = 1:30
+)
+
+
+# Generate UMAP embedding
+TTs.coembed <- RunUMAP(
+  TTs.coembed,
+  dims = 1:30,
+  reduction = 'harmony',
+  reduction.name = "umap_harmony",
+  reduction.key = 'umapharmony_',
+  verbose = FALSE
+)
+
+# Visualize integration
+DimPlot(TTs.coembed, group.by = "tech", reduction = "umap_harmony")
+```
+
+## Trajectory inference
+
+```{r}
+# Run diffusion maps for dimensionality reduction
+TTs.coembed <- RunDiffusionMap(TTs.coembed, reduction = "harmony")
+
+# Add trajectory
+TTs.coembed <- AddTrajectory(
+  object = TTs.coembed, 
+  trajectory = c(0, 2, 1),  # Define clusters for trajectory
+  group.by = "RNA_snn_res.0.9",  # Replace with your clustering column
+  reduction = "dm", 
+  dims = 1:3, 
+  use.all = FALSE
+)
+
+# Visualize the trajectory
+DimPlot(TTs.coembed, reduction = "dm", group.by = "RNA_snn_res.0.9")
+
+```
+
+# TF and Gene selection
+
+```{r}
+# Add motif information using JASPAR
+pfm <- getMatrixSet(
+  x = JASPAR2020,
+  opts = list(collection = "CORE", tax_group = 'vertebrates', all_versions = FALSE)
+)
+
+TTs.coembed <- AddMotifs(
+  object = TTs.coembed,
+  genome = BSgenome.Hsapiens.UCSC.hg38,
+  pfm = pfm,
+  assay = "ATAC"
+)
+
+# Compute chromVAR deviation scores
+TTs.coembed <- RunChromVAR(
+  object = TTs.coembed,
+  genome = BSgenome.Hsapiens.UCSC.hg38,
+  assay = "ATAC"
+)
+
+# Select transcription factors
+res_tf <- SelectTFs(object = TTs.coembed, return.heatmap = TRUE)
+draw(res_tf$heatmap)
+
+# Select genes linked to regulatory elements
+res_genes <- SelectGenes(object = TTs.coembed, labelTop1 = 0, labelTop2 = 0)
+draw(res_genes$heatmap)
+
+```
+
+# Step 4: GRN Inference
+
+```{r}
+# Compute TF-gene correlations
+tf_gene_cor <- GetTFGeneCorrelation(
+  object = TTs.coembed, 
+  tf.use = res_tf$tfs, 
+  gene.use = unique(res_genes$p2g$gene), 
+  tf.assay = "chromvar", 
+  gene.assay = "RNA", 
+  trajectory.name = "Trajectory"
+)
+
+# Visualize correlation matrix
+GRNHeatmap(tf_gene_cor)
+
+```
+
+# Step 5: GRN Construction
+
+```{r}
+motif.matching <- TTs.coembed@assays$ATAC@motifs@data
+colnames(motif.matching) <- TTs.coembed@assays$ATAC@motifs@motif.names
+
+df.grn <- GetGRN(
+  motif.matching = motif.matching,
+  df.cor = tf_gene_cor,
+  df.p2g = res_genes$p2g
+)
+
+# Save the GRN
+saveRDS(df.grn, ".data/TTs_final_grn.rds")
+
+```
+
+#
+
+```{r}
+# Define TF colors based on trajectory
+df.cor <- res_tf$tfs
+df.cor <- df.cor[order(df.cor$time_point), ]
+tfs.timepoint <- df.cor$time_point
+names(tfs.timepoint) <- df.cor$tfs
+
+# Plot the GRN
+GRNPlot(df.grn, tfs.timepoint = tfs.timepoint, show.tf.labels = TRUE)
+
+```
+
+
+
+

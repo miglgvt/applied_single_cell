@@ -1,0 +1,259 @@
+---
+title: "Annotation"
+format: html
+editor: visual
+---
+
+# Loading Data and Packages
+
+```{r}
+library(Seurat)
+library(SeuratObject)
+library(SingleR)
+library(SingleCellExperiment)
+library(org.Hs.eg.db)
+library(clustree)
+library(patchwork)
+library(celldex)
+```
+
+```{r}
+integrated.seu <- readRDS("data/scRNA/integratedTT_NT_12.rds")
+```
+
+```{r}
+DimPlot(integrated.seu, reduction="umap", label=TRUE, group.by = "orig.ident")
+```
+
+# Cell clustering
+
+```{r}
+#integrated.seu <- FindNeighbors(integrated.seu, reduction = "pca", dims = 1:30)
+
+# Run FindClusters using three different resolutions
+integrated.seu <- FindClusters(integrated.seu, resolution = 0.3, algorithm = 2)
+integrated.seu <- FindClusters(integrated.seu, resolution = 0.5, algorithm = 2)
+integrated.seu <- FindClusters(integrated.seu, resolution = 0.7, algorithm = 2)
+integrated.seu <- FindClusters(integrated.seu, resolution = 0.9, algorithm = 2)
+
+```
+
+```{r}
+# check the cluster location
+DimPlot(integrated.seu, reduction="umap", label=TRUE, group.by = "RNA_snn_res.0.9")
+# check the cluster location
+DimPlot(integrated.seu, label=TRUE, reduction="umap",  group.by = "RNA_snn_res.0.7")
+# check the cluster location
+DimPlot(integrated.seu, label=TRUE, reduction="umap",  group.by = "RNA_snn_res.0.5")
+# check the cluster location
+DimPlot(integrated.seu, label=TRUE, reduction="umap",  group.by = "RNA_snn_res.0.3")
+
+```
+
+## Run clustree
+
+```{r}
+clustree(integrated.seu, prefix = "RNA_snn_res.")
+
+p1 <- clustree(integrated.seu, prefix = "RNA_snn_res.")
+
+# Save the combined plot
+ggsave(
+  filename = "results/clustree.png", # File name
+  plot = p1,          # The plot object to save
+  width = 12,                    # Width of the image in inches
+  height = 8,                    # Height of the image in inches
+  dpi = 300                      # Resolution in dots per inch
+)
+```
+
+```{r}
+Idents(integrated.seu) <- "RNA_snn_res.0.3"
+```
+
+# Manual annotation
+
+```{r}
+markers <- FindAllMarkers(
+    object = integrated.seu,        # Your Seurat object
+    assay = "RNA",                  # Assay to use (e.g., RNA or SCT)
+    only.pos = TRUE,                # Only return markers that are upregulated in clusters
+    min.pct = 0.25,                 # Minimum percentage of cells expressing the gene
+    logfc.threshold = 0.25          # Minimum log-fold change threshold
+)
+```
+
+```{r}
+markers %>%
+    group_by(cluster) %>%
+    dplyr::filter(avg_log2FC > 1)
+```
+
+```{r}
+
+```
+
+# Annotation with singleR
+
+1.  Load reference dataset
+
+```{r}
+# Load the dataset
+ref_dataset <- readRDS("data/9dff3651-e629-4519-aaab-dbd21b6b02b1.rds")
+```
+
+```{r}
+ref <- HumanPrimaryCellAtlasData()
+```
+
+2.  Convert cell_type to character
+
+```{r}
+#Convert cell_type to character
+ref_dataset$cell_type <- as.character(ref_dataset@meta.data$cell_type)
+```
+
+3.  Subsetting by breast tissue
+
+```{r}
+# Subset Seurat object by tissue
+ref_dataset_breast <- subset(ref_dataset, subset = tissue == "breast")
+```
+
+4.  Transform reference dataset into singlecellexperiment object
+
+```{r}
+sce <- as.SingleCellExperiment(ref_dataset_breast)
+
+```
+
+```{r}
+#class(integrated.seu)
+#dim(integrated.seu)
+```
+
+Transforming the seurat object into a matrix
+
+```{r}
+expression_matrix <- GetAssayData(integrated.seu, assay = "RNA", slot = "data")
+```
+
+```{r}
+# Check row names in the test dataset
+head(rownames(expression_matrix))
+
+# Check row names in the reference dataset
+head(rownames(sce))
+
+```
+
+**Map gene identifier:**
+
+Map the gene symbols in your `expression_matrix` to Ensembl IDs to match the reference (`sce`)
+
+```{r}
+# Map gene symbols to Ensembl IDs
+gene_mapping <- AnnotationDbi::select(
+  org.Hs.eg.db,
+  keys = rownames(expression_matrix),  # Use the row names from expression_matrix
+  columns = "ENSEMBL",                 # Target Ensembl IDs
+  keytype = "SYMBOL"                   # Input is gene symbols
+)
+
+# Filter for valid mappings
+valid_genes <- gene_mapping[!is.na(gene_mapping$ENSEMBL), ]
+```
+
+#### **Subset the Test Data to Mapped Genes**
+
+Filter the `expression_matrix` to include only genes with valid mappings and update the row names to Ensembl IDs:
+
+```{r}
+# Subset expression_matrix to include only valid genes
+expression_matrix <- expression_matrix[rownames(expression_matrix) %in% valid_genes$SYMBOL, ]
+
+# Update row names to Ensembl IDs
+rownames(expression_matrix) <- valid_genes$ENSEMBL[match(rownames(expression_matrix), valid_genes$SYMBOL)]
+
+```
+
+#### **Subset Both Datasets to Common Genes**
+
+Now, ensure that both `expression_matrix` and `sce` only include the genes they have in common:
+
+```{r}
+# Identify common genes
+common_genes <- intersect(rownames(expression_matrix), rownames(sce))
+
+# Subset test and reference datasets
+expression_matrix <- expression_matrix[common_genes, ]
+sce <- sce[common_genes, ]
+
+```
+
+```{r}
+annotations <- SingleR(
+  test = as.matrix(expression_matrix),  # Convert to matrix if needed
+  ref = sce,  # Reference dataset
+  labels = sce$cell_type,  # Reference cell type labels
+  de.method = 'wilcox'
+)
+
+```
+
+Inspect quality predictions
+
+```{r}
+# Inspect the resulting annotations
+head(annotations)
+# Inspect quality of the predictions
+plotScoreHeatmap(annotations)
+plotDeltaDistribution(annotations, ncol = 4, dots.on.top = FALSE)
+```
+
+3.  Add SingleR predictions to Seurat object
+
+```{r}
+# Add SingleR annotations (pruned labels) to the Seurat metadata
+integrated.seu$SingleR_Labels <- annotations$pruned.labels
+
+```
+
+```{r}
+# Seurat DimPlot with annotations
+DimPlot(integrated.seu, group.by = "SingleR_Labels", reduction = "umap")
+
+```
+
+```{r}
+library(Seurat)
+library(Signac)
+library(ggplot2)
+```
+
+```{r}
+atac.integrated <- readRDS('data/scATAC/atac.integrated.rds')
+rna.integrated <- readRDS('data/scRNA/rna.integrated.rds')
+```
+
+```{r}
+rna.integrated <- NormalizeData(rna.integrated)
+rna.integrated <- FindVariableFeatures(rna.integrated)
+rna.integrated <- ScaleData(rna.integrated)
+rna.integrated <- RunPCA(rna.integrated)
+rna.integrated <- RunUMAP(rna.integrated, dims = 1:30)
+
+atac.integrated <- RunTFIDF(atac.integrated)
+atac.integrated <- FindTopFeatures(atac.integrated, min.cutoff = "q0")
+atac.integrated <- RunSVD(atac.integrated)
+atac.integrated <- RunUMAP(atac.integrated, reduction = "lsi", dims = 2:30, reduction.name = "umap.atac", reduction.key = "atacUMAP_")
+
+```
+
+## Identifying anchors between scRNA-seq and scATAC-seq datasets
+
+```{r}
+# quantify gene activity
+gene.activities <- GeneActivity(atac.integrated, features = VariableFeatures(rna.integrated))
+
+```
